@@ -10,7 +10,7 @@
                 "height": 224,
                 "aspect_w": 9,
                 "aspect_h": 7,
-                "rotation": 270,
+                "rotation": 90,
                 "mirror": 0
             }
         ],
