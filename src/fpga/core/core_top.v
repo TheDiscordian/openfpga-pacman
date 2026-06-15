@@ -580,13 +580,23 @@ end
 
 
 //
-// audio i2s silence generator
-// see other examples for actual audio generation
 //
-
-assign audio_mclk = audgen_mclk;
-assign audio_dac = audgen_dac;
-assign audio_lrck = audgen_lrck;
+// audio: Namco WSG output -> I2S via sound_i2s (analogue-pocket-utils).
+// O_AUDIO is the WSG's unsigned 10-bit sum (0 = silence); feed both channels.
+// (The template's silence generator below is now unused and optimised away.)
+//
+    sound_i2s #(
+        .CHANNEL_WIDTH (10),
+        .SIGNED_INPUT  (0)
+    ) aud (
+        .clk_74a    (clk_74a),
+        .clk_audio  (clk_sys),
+        .audio_l    (pac_audio),
+        .audio_r    (pac_audio),
+        .audio_mclk (audio_mclk),
+        .audio_lrck (audio_lrck),
+        .audio_dac  (audio_dac)
+    );
 
 // generate MCLK = 12.288mhz with fractional accumulator
     reg         [21:0]  audgen_accum;

@@ -769,6 +769,7 @@ set_global_assignment -name VHDL_FILE core/rtl/sn76489/sn76489_latch_ctrl.vhd
 # ---- analogue-pocket-utils (agg23, MIT) ----
 set_global_assignment -name SYSTEMVERILOG_FILE ../../libs/analogue-pocket-utils/ip/data_loader.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../../libs/analogue-pocket-utils/ip/sync_fifo.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../../libs/analogue-pocket-utils/ip/sound_i2s.sv
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_1wire
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_spiclk
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_spimiso
