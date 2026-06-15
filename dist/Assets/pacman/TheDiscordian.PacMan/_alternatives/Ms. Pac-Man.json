@@ -1,0 +1,13 @@
+{
+    "instance": {
+        "magic": "APF_VER_1",
+        "data_path": "",
+        "core_select": { "id": 0, "select": false },
+        "data_slots": [
+            { "id": 1, "filename": "mspacman.rom" }
+        ],
+        "memory_writes": [
+            { "address": "0x50000000", "data": "0x00000005" }
+        ]
+    }
+}
