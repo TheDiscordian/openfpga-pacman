@@ -703,8 +703,33 @@ mf_pllbase mp1 (
     wire [7:0] pac_in0 = { 1'b1, 1'b1, ~m_coin,  1'b1, ~m_down, ~m_right, ~m_left, ~m_up };
     wire [7:0] pac_in1 = { 1'b1, 1'b1, ~m_start, 1'b1, 1'b1,    1'b1,     1'b1,    1'b1  };
 
-    // Ms. Pac-Man: mod_ms=1, all other variants 0. DIP defaults from the MRA
-    // (FF,FF,C9): dipsw1=C9 (1c/1c, 3 lives, bonus 10k, normal), dipsw2=FF.
+    // Per-game variant: each game's instance JSON pushes its mod value to bridge
+    // address VARIANT_ADDR via a memory_write (the standard Pocket mechanism, so
+    // updater-assembled cores produce it). Latch in the bridge clock domain, then
+    // 2-FF-sync into the core clock and decode to the core's mod_* selects
+    // (MiSTer mod numbering: 0 = Pac-Man, 5 = Ms. Pac-Man, ...).
+    // DIP defaults from the MRA (FF,FF,C9): dipsw1=C9, dipsw2=FF.
+    localparam [31:0] VARIANT_ADDR = 32'h50000000;
+    reg  [7:0] mod_bridge = 8'd0;
+    always @(posedge clk_74a)
+        if (bridge_wr && bridge_addr == VARIANT_ADDR) mod_bridge <= bridge_wr_data[7:0];
+    reg  [7:0] mod_s1 = 8'd0, mod_reg = 8'd0;
+    always @(posedge clk_sys) begin mod_s1 <= mod_bridge; mod_reg <= mod_s1; end
+
+    wire mod_plus  = (mod_reg == 8'd1);
+    wire mod_club  = (mod_reg == 8'd2);
+    wire mod_bird  = (mod_reg == 8'd4);
+    wire mod_ms    = (mod_reg == 8'd5);
+    wire mod_mrtnt = (mod_reg == 8'd7);
+    wire mod_woodp = (mod_reg == 8'd8);
+    wire mod_eeek  = (mod_reg == 8'd9);
+    wire mod_alib  = (mod_reg == 8'd10);
+    wire mod_ponp  = (mod_reg == 8'd11);
+    wire mod_van   = (mod_reg == 8'd12);
+    wire mod_dshop = (mod_reg == 8'd14);
+    wire mod_glob  = (mod_reg == 8'd15);
+    wire mod_jmpst = (mod_reg == 8'd16);
+
     wire [9:0] pac_audio;
     pacman pacman_core (
         .O_VIDEO_R (core_r), .O_VIDEO_G (core_g), .O_VIDEO_B (core_b),
@@ -713,10 +738,11 @@ mf_pllbase mp1 (
         .O_AUDIO (pac_audio),
         .in0 (pac_in0), .in1 (pac_in1),
         .dipsw1 (8'hC9), .dipsw2 (8'hFF),
-        .mod_plus (1'b0), .mod_jmpst (1'b0), .mod_bird (1'b0), .mod_mrtnt (1'b0),
-        .mod_ms (1'b1), .mod_woodp (1'b0), .mod_eeek (1'b0), .mod_glob (1'b0),
-        .mod_alib (1'b0), .mod_ponp (1'b0), .mod_van (1'b0), .mod_dshop (1'b0),
-        .mod_club (1'b0),
+        .mod_plus (mod_plus), .mod_jmpst (mod_jmpst), .mod_bird (mod_bird), .mod_mrtnt (mod_mrtnt),
+        .mod_ms (mod_ms), .mod_woodp (mod_woodp), .mod_eeek (mod_eeek), .mod_glob (mod_glob),
+        .mod_alib (mod_alib), .mod_ponp (mod_ponp | mod_van | mod_dshop),
+        .mod_van (mod_van | mod_dshop), .mod_dshop (mod_dshop),
+        .mod_club (mod_club),
         .flip_screen (1'b0), .h_offset (3'd0), .v_offset (3'd0),
         .dn_addr (ioctl_addr), .dn_data (ioctl_data), .dn_wr (ioctl_wr),
         .pause (1'b0),
