@@ -47,7 +47,7 @@ module  mf_pllbase_0002(
 		.output_clock_frequency2("6.144000 MHz"),
 		.phase_shift2("40690 ps"),
 		.duty_cycle2(50),
-		.output_clock_frequency3("24.576000 MHz"),
+		.output_clock_frequency3("196.608000 MHz"),
 		.phase_shift3("0 ps"),
 		.duty_cycle3(50),
 		.output_clock_frequency4("24.576000 MHz"),
