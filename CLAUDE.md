@@ -38,8 +38,10 @@ This repo is **BSD-3-Clause**. Keep it that way:
 
 ## ROMs (local, for testing)
 
-In `a local ROM folder/`: `pacman.zip` (clean Pac-Man — first bring-up), `pacmanf.zip` (Pac-Man fast), `mspacman.zip` (Ms. Pac-Man), `mspacmnf.zip` (Ms. Pac-Man fast). All standard MAME sets — assemble to a `.rom` blob via mra-tools-c.
+In `a local ROM folder/`: `pacman.zip` (clean Pac-Man), `pacmanf.zip` (Pac-Man fast), `mspacman.zip` (Ms. Pac-Man — first bring-up target), `mspacmnf.zip` (Ms. Pac-Man fast). All standard MAME sets.
+
+**ROM loading is per-file, no MRA tool.** `data.json` declares one data slot per ROM file (fixed `filename`, fixed bridge `address`), so the user just unzips their MAME set and copies the loose files into `Assets/pacman/common/`; the Pocket auto-loads each into the core's `dn_addr` map. Slot addresses follow the Ms. Pac-Man MRA's sequential layout (program 0x0000, aux u5/u6/u7 0x4000, gfx 5e/5f 0x8000, PROMs 0xC000), with `u5`/`u7`/`5f` mirrored to multiple slots exactly as the MRA duplicates them. The internal decoders in `pacman_rom_descrambler.vhd` / `pacman_video.vhd` / the audio module pick up their regions from `dn_addr`.
 
 ## Current state
 
-Milestone 0 (scaffold). The tree is the unmodified core-template skeleton plus the Pac-Man RTL/utils in place but **not yet wired into `core_top`**. Next: build the template to a gray screen on device (proves the toolchain), then milestone 1 (instantiate the core). See `PLAN.md`.
+Milestone 1 (core integration), branch `feat/pacman-core-integration`. Milestone 0 done: toolchain proven (real Docker-Quartus build, timing closed), repo + skill + public GitHub live. Per-file `data.json` authored. Next in core_top.v: instantiate `PACMAN` + `data_loader` + `sound_i2s`, generate `ce_6m`/`ce_4m`/`ce_1m79` from a core clock (`ce_6m` = pixel 6.144 MHz), map `O_VIDEO` 3:3:2 → `video_rgb`, `O_AUDIO[9:0]` → I2S, `cont1_key` → `in0/in1`, hardcode `mod_ms=1`. Open question: pixel clock — reuse the template's 12.288 MHz PLL output vs. regenerate the PLL for 6.144 MHz. See `PLAN.md`.

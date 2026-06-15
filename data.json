@@ -2,14 +2,23 @@
     "data": {
         "magic": "APF_VER_1",
         "data_slots": [
-            {
-                "name": "ROM",
-                "id": 0,
-                "required": true,
-                "parameters": 8,
-                "extensions": ["rom"],
-                "address": "0x00000000"
-            }
+            { "name": "pacman.6e",   "id": 0,  "required": true, "parameters": 8, "filename": "pacman.6e",   "address": "0x00000000" },
+            { "name": "pacman.6f",   "id": 1,  "required": true, "parameters": 8, "filename": "pacman.6f",   "address": "0x00001000" },
+            { "name": "pacman.6h",   "id": 2,  "required": true, "parameters": 8, "filename": "pacman.6h",   "address": "0x00002000" },
+            { "name": "pacman.6j",   "id": 3,  "required": true, "parameters": 8, "filename": "pacman.6j",   "address": "0x00003000" },
+            { "name": "u5",          "id": 4,  "required": true, "parameters": 8, "filename": "u5",          "address": "0x00004000" },
+            { "name": "u5 (mirror)", "id": 5,  "required": true, "parameters": 8, "filename": "u5",          "address": "0x00004800" },
+            { "name": "u6",          "id": 6,  "required": true, "parameters": 8, "filename": "u6",          "address": "0x00005000" },
+            { "name": "u7",          "id": 7,  "required": true, "parameters": 8, "filename": "u7",          "address": "0x00006000" },
+            { "name": "u7 (mirror)", "id": 8,  "required": true, "parameters": 8, "filename": "u7",          "address": "0x00007000" },
+            { "name": "5e",          "id": 9,  "required": true, "parameters": 8, "filename": "5e",          "address": "0x00008000" },
+            { "name": "5f",          "id": 10, "required": true, "parameters": 8, "filename": "5f",          "address": "0x00009000" },
+            { "name": "5f (mirror1)","id": 11, "required": true, "parameters": 8, "filename": "5f",          "address": "0x0000A000" },
+            { "name": "5f (mirror2)","id": 12, "required": true, "parameters": 8, "filename": "5f",          "address": "0x0000B000" },
+            { "name": "82s126.1m",   "id": 13, "required": true, "parameters": 8, "filename": "82s126.1m",   "address": "0x0000C000" },
+            { "name": "82s126.4a",   "id": 14, "required": true, "parameters": 8, "filename": "82s126.4a",   "address": "0x0000C100" },
+            { "name": "82s126.3m",   "id": 15, "required": true, "parameters": 8, "filename": "82s126.3m",   "address": "0x0000C200" },
+            { "name": "82s123.7f",   "id": 16, "required": true, "parameters": 8, "filename": "82s123.7f",   "address": "0x0000C300" }
         ]
     }
 }

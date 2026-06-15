@@ -10,11 +10,11 @@ The core is a faithful gateware implementation of the Pac-Man hardware: a Z80 @ 
 
 ## 📦 ROMs — bring your own
 
-This core ships **no game ROMs**. You supply your own dump:
+This core ships **no game ROMs**. You supply your own — and there's **no tool to run**:
 
-1. Obtain a Pac-Man / Ms. Pac-Man ROM set you are legally entitled to (e.g. the MAME `pacman` or `mspacman` set).
-2. Assemble it into a single `.rom` blob with an MRA tool ([mra-tools-c](https://github.com/sebdel/mra-tools-c)).
-3. Drop it in `Assets/pacman/common/` on your Pocket SD card.
+1. Obtain a Ms. Pac-Man ROM set you are legally entitled to (the MAME `mspacman` set).
+2. Unzip it and copy the loose files (`pacman.6e`, `pacman.6f`, `u5`, `u6`, `u7`, `5e`, `5f`, `82s126.1m`, `82s126.4a`, `82s126.3m`, `82s123.7f`) into `Assets/pacman/common/` on your Pocket SD card.
+3. Launch the core — it loads each file into place automatically.
 
 ## 🔧 Building
 
