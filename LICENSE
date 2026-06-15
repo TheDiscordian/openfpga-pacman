@@ -1,0 +1,44 @@
+BSD 3-Clause License
+
+Copyright (c) 2026, TheDiscordian and openFPGA Pac-Man contributors
+Copyright (c) 2006, MikeJ (fpgaarcade) — Pac-Man hardware HDL
+Copyright (c) 2002-2004, Daniel Wallner — T80 Z80 CPU core
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+--------------------------------------------------------------------------------
+Credits / provenance
+
+The Pac-Man hardware RTL is MikeJ's fpgaarcade VHDL model, integrated via the
+MiSTer Arcade-Pacman core (maintained by Alexey "Sorgelig" Melnikov and the
+MiSTer-devel project); the Z80 is Daniel Wallner's T80. All carry 3-clause BSD
+headers, retained intact in src/fpga/core/rtl/. The MiSTer /sys framework (GPL)
+is NOT included — this repository ships only the BSD core RTL plus an original
+Analogue Pocket APF wrapper.
+
+This core contains NO game ROMs. Pac-Man and Ms. Pac-Man are trademarks of
+Bandai Namco Entertainment Inc.; this is an independent, hardware-compatible
+FPGA implementation, not affiliated with or endorsed by Bandai Namco.

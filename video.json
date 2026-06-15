@@ -1,0 +1,23 @@
+{
+    "video": {
+        "magic": "APF_VER_1",
+        "defaults": {
+            "sharpness": 3
+        },
+        "scaler_modes": [
+            {
+                "width": 288,
+                "height": 224,
+                "aspect_w": 9,
+                "aspect_h": 7,
+                "rotation": 270,
+                "mirror": 0
+            }
+        ],
+        "display_modes": [
+            { "id": "0x10" },
+            { "id": "0x30" },
+            { "id": "0x40" }
+        ]
+    }
+}

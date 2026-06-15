@@ -1,0 +1,5 @@
+openFPGA Pac-Man
+
+Namco Pac-Man arcade hardware for the Analogue Pocket. Hardware-compatible FPGA
+core covering Pac-Man, Ms. Pac-Man and same-board variants. Ships no ROMs — you
+supply your own dump (see README).

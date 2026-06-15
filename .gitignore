@@ -1,0 +1,27 @@
+# Upstream reference clones — local cribbing material, not part of the core.
+# (Also keeps GPL-licensed MiSTer framework files out of this BSD tree.)
+/_upstream/
+/reference/
+
+# Quartus build intermediates
+/src/fpga/output_files/
+/src/fpga/db/
+/src/fpga/incremental_db/
+/src/fpga/.qsys_edit/
+*.qws
+*.rpt
+*.summary
+*.bak
+*.orig
+*.sld
+
+# build artifacts — reproducible via build.sh; ship via GitHub releases, not git
+/output/*.rbf_r
+/dist/Cores/
+
+# packaging scratch
+/build-staging/
+
+# OS junk
+.DS_Store
+Thumbs.db
