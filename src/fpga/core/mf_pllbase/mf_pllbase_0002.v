@@ -27,18 +27,20 @@ module  mf_pllbase_0002(
 );
 
 	// Retuned for the Pac-Man core (board-accurate functional rates):
-	//   outclk_0 = 24.576 MHz  clk_sys carrier (ENA_6 = /4 -> 6.144 MHz pixel beat)
+	//   outclk_0 = 49.152 MHz  clk_sys carrier (ENA_6 = /8 -> 6.144 MHz pixel beat)
 	//   outclk_1 = 6.144  MHz  pixel clock          (video_rgb_clock)
 	//   outclk_2 = 6.144  MHz  pixel clock @ 90 deg  (video_rgb_clock_90)
-	//   outclk_3/4 = 24.576 MHz (unused; kept on the same VCO)
-	// All derived from one VCO (= 6.144 * 160 = 983.04 MHz); Quartus computes the
+	//   outclk_3/4 = 49.152 MHz (unused)
+	// clk_sys = 49.152 is only divisible from a 983.04 MHz VCO (= 6.144*160),
+	// which forces Quartus onto that VCO so 6.144 MHz lands ~exact (60.606 Hz)
+	// instead of the ~350 ppm error a lower VCO gives. Quartus computes the
 	// fractional-N counters from these target strings at synthesis.
 	altera_pll #(
 		.fractional_vco_multiplier("true"),
 		.reference_clock_frequency("74.25 MHz"),
 		.operation_mode("normal"),
 		.number_of_clocks(5),
-		.output_clock_frequency0("24.576000 MHz"),
+		.output_clock_frequency0("49.152000 MHz"),
 		.phase_shift0("0 ps"),
 		.duty_cycle0(50),
 		.output_clock_frequency1("6.144000 MHz"),
@@ -47,10 +49,10 @@ module  mf_pllbase_0002(
 		.output_clock_frequency2("6.144000 MHz"),
 		.phase_shift2("40690 ps"),
 		.duty_cycle2(50),
-		.output_clock_frequency3("196.608000 MHz"),
+		.output_clock_frequency3("49.152000 MHz"),
 		.phase_shift3("0 ps"),
 		.duty_cycle3(50),
-		.output_clock_frequency4("24.576000 MHz"),
+		.output_clock_frequency4("49.152000 MHz"),
 		.phase_shift4("0 ps"),
 		.duty_cycle4(50),
 		.output_clock_frequency5("0 MHz"),
