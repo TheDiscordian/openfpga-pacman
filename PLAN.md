@@ -19,7 +19,7 @@ Port `MiSTer-devel/Arcade-Pacman_MiSTer` to the Analogue Pocket as a new openFPG
 
 Top entity `core_top` (`src/fpga/core/core_top.v`), instantiated by `apf/apf_top.v`. Wrap the VHDL core inside it.
 
-- **Clocks/PLL:** host gives `clk_74a/clk_74b` @ 74.25 MHz; `mf_pllbase` synthesises an 18.432 MHz system clock + enables (Z80 ÷6, pixel ÷3, WSG ÷192), mirroring the board. Sync PLL `locked` into `clk_74a`. **Gate the Z80 clock-enables until both PLL-lock AND `dataslot_allcomplete`.**
+- **Clocks/PLL:** host gives `clk_74a/clk_74b` @ 74.25 MHz. Regenerate `mf_pllbase` to emit **≈24.576 MHz `clk_sys`** + a **native 6.144 MHz pixel clock** (+90° for `video_rgb_clock`), matching the MiSTer reference exactly: `ENA_6`=÷4 (6.144 MHz), `ENA_4`=÷6, `ENA_1M79`=÷13. This keeps the core on its known-good clock structure (no raw-`CLK`-rate deviation) and avoids pixel-doubling in video. Sync PLL `locked` into `clk_74a`. **Gate the clock-enables until both PLL-lock AND `dataslot_allcomplete`.**
 - **ROM load:** `data.json` ROM slot at bridge `0x00000000`; instantiate `data_loader` (analogue-pocket-utils) → its `write_en/addr/data` stream wires straight to the MiSTer core's `dn_wr/dn_addr/dn_data` download port (1:1, which is why MiSTer cores port cleanly). **Verify the MRA blob offsets match the core's program/gfx (5e,5f)/three-PROM regions — a wrong offset loads garbage silently.**
 - **Video (portrait):** the FPGA scans the **native 288×224 raster** and never rotates; portrait is set in `video.json` (`rotation: 270`). Decode RGB through the 82s123 palette + 82s126 lookup PROMs into `video_rgb[23:0]`. `video.json` `width`/`height` must equal the `video_de` window — **add a scaler acceptance check at ~60.6 Hz portrait, using `video_skip` as the lever.**
 - **Audio (I2S):** WSG PCM → `sound_i2s` → `audio_mclk/dac/lrck`. WSG runs 96 kHz internally; resample to the 48 kHz I2S rate.
@@ -55,8 +55,7 @@ Ship zero ROM bytes. The repo carries HDL/bitstream + JSON only. `data.json` dec
 
 ## 7. ⚠️ Risks
 
-- **Toolchain version delta (low):** the build uses Quartus Prime 21.1.1 Lite while the template targets 18.1.1 — both build Pocket cores fine; suspect only if synthesis misbehaves.
-- **Scaler geometry (med):** DE window must match `video.json`; ~60.6 Hz + portrait must be configured right or video is garbled. Crib `reference/superbreakout-video.json`.
+- **Scaler geometry (med):** DE window must match `video.json`; ~60.6 Hz + portrait must be configured right or video is garbled. Crib [ericlewis/openfpga-superbreakout](https://github.com/ericlewis/openfpga-superbreakout).
 - **WSG 96 kHz → 48 kHz resample (low-med):** pitch/mix may need iteration.
 - **GPL contamination (med if careless):** never pull a MiSTer `/sys` helper back in. `/_upstream/` and `/reference/` are gitignored so GPL framework files never enter the published tree.
 - **Genuine daughterboard decode is out of scope** for v1 (flattened ROMs only).

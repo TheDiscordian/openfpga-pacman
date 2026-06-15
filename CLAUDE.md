@@ -42,4 +42,4 @@ This repo is **BSD-3-Clause**. Keep it that way:
 
 ## Current state
 
-Milestone 1 (core integration). Milestone 0 done: toolchain proven (clean Quartus build, timing closed), repo + public release + per-file `data.json`. Next in `core_top.v`: instantiate `PACMAN` + `data_loader` + `sound_i2s`, generate `ce_6m`/`ce_4m`/`ce_1m79` from the 12.288 MHz core clock (`ce_6m` = pixel 6.144 MHz beat), map `O_VIDEO` 3:3:2 → `video_rgb`, `O_AUDIO[9:0]` → I2S, `cont1_key` → `in0/in1`, hardcode `mod_ms=1`. See `PLAN.md`.
+Milestone 1 (core integration). Milestone 0 done: toolchain proven (clean Quartus build, timing closed), repo + public release + per-file `data.json`. Next in `core_top.v`: regenerate the PLL to ≈24.576 MHz `clk_sys` + native 6.144 MHz pixel clock (matching the MiSTer reference, `ENA_6`=÷4); instantiate `PACMAN` + `data_loader` + `sound_i2s`; map `O_VIDEO` 3:3:2 → `video_rgb`, `O_AUDIO[9:0]` → I2S, `cont1_key` → `in0/in1`; hardcode `mod_ms=1`. See `PLAN.md`.
