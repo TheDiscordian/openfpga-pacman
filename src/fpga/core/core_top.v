@@ -543,8 +543,9 @@ assign video_hs = vidout_hs;
     reg        hs_d = 0, vs_d = 0, hb_d = 0, vb_d = 0;
     reg  [9:0] h_start = 0, h_end = 10'h3ff, v_start = 0, v_end = 10'h3ff;
 
-    wire in_active = (hcnt >= h_start) && (hcnt <= h_end) &&
-                     (vcnt >= v_start) && (vcnt <= v_end);
+    // The grown window (active +/- BORDER) drives DE for the black margin. RGB is
+    // gated on the core's EXACT blanking so no blanking data can leak into the
+    // picture (the border ring is therefore always black).
     wire in_window = (hcnt + BORDER >= h_start) && (hcnt <= h_end + BORDER) &&
                      (vcnt + BORDER >= v_start) && (vcnt <= v_end + BORDER);
 
@@ -569,10 +570,10 @@ always @(posedge clk_pix) begin
     vidout_hs   <= core_hsync;
     vidout_vs   <= core_vsync;
     vidout_de   <= in_window;
-    vidout_rgb  <= in_active ?
+    vidout_rgb  <= (core_hblank | core_vblank) ? 24'h0 :
                    { core_r, core_r, core_r[2:1],
                      core_g, core_g, core_g[2:1],
-                     core_b, core_b, core_b, core_b } : 24'h0;
+                     core_b, core_b, core_b, core_b };
 end
 
 
