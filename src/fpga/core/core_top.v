@@ -585,14 +585,32 @@ end
 // O_AUDIO is the WSG's unsigned 10-bit sum (0 = silence); feed both channels.
 // (The template's silence generator below is now unused and optimised away.)
 //
+    // The WSG time-multiplexes its 3 voices onto O_AUDIO (one vol*wavetable
+    // product per slot); the real board sums them in its analog mixer. Integrate
+    // O_AUDIO over each 48 kHz frame (512 clk_sys = exactly 2 multiplex windows =
+    // 2 samples per voice) to recover that sum and anti-alias before sound_i2s
+    // point-samples it. sum/512 -> bits [18:9].
+    reg [8:0]  aud_div     = 9'd0;
+    reg [19:0] aud_acc     = 20'd0;
+    reg [9:0]  pac_audio_s = 10'd0;
+    always @(posedge clk_sys) begin
+        aud_div <= aud_div + 9'd1;
+        if (aud_div == 9'd511) begin
+            pac_audio_s <= aud_acc[18:9];
+            aud_acc     <= pac_audio;        // seed next frame with this sample
+        end else begin
+            aud_acc     <= aud_acc + pac_audio;
+        end
+    end
+
     sound_i2s #(
         .CHANNEL_WIDTH (10),
         .SIGNED_INPUT  (0)
     ) aud (
         .clk_74a    (clk_74a),
         .clk_audio  (clk_sys),
-        .audio_l    (pac_audio),
-        .audio_r    (pac_audio),
+        .audio_l    (pac_audio_s),
+        .audio_r    (pac_audio_s),
         .audio_mclk (audio_mclk),
         .audio_lrck (audio_lrck),
         .audio_dac  (audio_dac)
