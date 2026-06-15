@@ -26,25 +26,32 @@ module  mf_pllbase_0002(
 	output wire locked
 );
 
+	// Retuned for the Pac-Man core (board-accurate functional rates):
+	//   outclk_0 = 24.576 MHz  clk_sys carrier (ENA_6 = /4 -> 6.144 MHz pixel beat)
+	//   outclk_1 = 6.144  MHz  pixel clock          (video_rgb_clock)
+	//   outclk_2 = 6.144  MHz  pixel clock @ 90 deg  (video_rgb_clock_90)
+	//   outclk_3/4 = 24.576 MHz (unused; kept on the same VCO)
+	// All derived from one VCO (= 6.144 * 160 = 983.04 MHz); Quartus computes the
+	// fractional-N counters from these target strings at synthesis.
 	altera_pll #(
 		.fractional_vco_multiplier("true"),
 		.reference_clock_frequency("74.25 MHz"),
 		.operation_mode("normal"),
 		.number_of_clocks(5),
-		.output_clock_frequency0("12.287999 MHz"),
+		.output_clock_frequency0("24.576000 MHz"),
 		.phase_shift0("0 ps"),
 		.duty_cycle0(50),
-		.output_clock_frequency1("12.287999 MHz"),
-		.phase_shift1("20345 ps"),
+		.output_clock_frequency1("6.144000 MHz"),
+		.phase_shift1("0 ps"),
 		.duty_cycle1(50),
-		.output_clock_frequency2("133.119993 MHz"),
-		.phase_shift2("0 ps"),
+		.output_clock_frequency2("6.144000 MHz"),
+		.phase_shift2("40690 ps"),
 		.duty_cycle2(50),
-		.output_clock_frequency3("133.119992 MHz"),
-		.phase_shift3("6573 ps"),
+		.output_clock_frequency3("24.576000 MHz"),
+		.phase_shift3("0 ps"),
 		.duty_cycle3(50),
-		.output_clock_frequency4("133.119990 MHz"),
-		.phase_shift4("5634 ps"),
+		.output_clock_frequency4("24.576000 MHz"),
+		.phase_shift4("0 ps"),
 		.duty_cycle4(50),
 		.output_clock_frequency5("0 MHz"),
 		.phase_shift5("0 ps"),
@@ -96,4 +103,3 @@ module  mf_pllbase_0002(
 		.refclk	(refclk)
 	);
 endmodule
-
