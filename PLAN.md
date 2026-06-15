@@ -43,27 +43,27 @@ A→Z test each phase on-device before advancing.
 
 ## 5. 📦 Repo & deploy
 
-Repo: **`this repo/`** (alongside `a sibling build dir` / `a sibling build dir`). Layout: `src/fpga/` (template skeleton + `core/rtl/` Pac-Man HDL), `libs/analogue-pocket-utils/`, `dist/` (Cores/Platforms/Assets staging), `mra/`, `tools/reverse_rbf.py`, `build.sh`. SD package deploys to `/Cores/TheDiscordian.Pacman/`, `/Platforms/pacman.json`, `/Assets/pacman/common/` (empty).
+Layout: `src/fpga/` (template skeleton + `core/rtl/` Pac-Man HDL), `libs/analogue-pocket-utils/`, `dist/` (Cores/Platforms/Assets staging), `mra/`, `tools/reverse_rbf.py`, `build.sh`. SD package deploys to `/Cores/TheDiscordian.PacMan/`, `/Platforms/pacman.json`, `/Assets/pacman/common/` (empty).
 
 **Identity (must match exactly across SD folder, `core.json`, and any inventory PR):** author `TheDiscordian`, shortname `PacMan` → folder `TheDiscordian.PacMan`. A mismatch yields "General core error" (check `/System/Logs/`).
 
-**Build/test loop** (verified present locally): `build.sh` → Docker `raetro/quartus:21.1` (`quartus_sh --flow compile ap_core`) → `reverse_rbf.py` → `output/bitstream.rbf_r` → stage `dist/` → copy to the Pocket SD (audit found it mounted at `the Pocket SD card`; **verify it is inserted before each deploy**). `git`/`gh` authed as `TheDiscordian`.
+**Build/test loop:** `build.sh` → Quartus Prime Lite (Dockerised, `quartus_sh --flow compile ap_core`) → `reverse_rbf.py` → `output/bitstream.rbf_r` → stage `dist/` → copy onto the Pocket SD card.
 
 ## 6. ⚖️ ROM handling
 
-Ship zero ROM bytes. The repo carries HDL/bitstream + JSON + (later) MRA manifests only. The user assembles their own dump (mra-tools-c against their own MAME set) into `Assets/pacman/common/`; `data_loader` streams it at boot. BSD `LICENSE` with attribution; descriptive repo name, no trademarked logo/art.
+Ship zero ROM bytes. The repo carries HDL/bitstream + JSON only. `data.json` declares one data slot per ROM file, so the user just unzips their own MAME set and copies the loose files into `Assets/pacman/common/`; `data_loader` streams each into the core at boot — no MRA tool. BSD `LICENSE` with attribution; descriptive repo name, no trademarked logo/art.
 
 ## 7. ⚠️ Risks
 
-- **Toolchain version delta (low):** local Quartus is 21.1.1 Lite, template targets 18.1.1 — but SNES/NES already build fine on 21.1. Suspect only if synthesis misbehaves.
+- **Toolchain version delta (low):** the build uses Quartus Prime 21.1.1 Lite while the template targets 18.1.1 — both build Pocket cores fine; suspect only if synthesis misbehaves.
 - **Scaler geometry (med):** DE window must match `video.json`; ~60.6 Hz + portrait must be configured right or video is garbled. Crib `reference/superbreakout-video.json`.
 - **WSG 96 kHz → 48 kHz resample (low-med):** pitch/mix may need iteration.
 - **GPL contamination (med if careless):** never pull a MiSTer `/sys` helper back in. `/_upstream/` and `/reference/` are gitignored so GPL framework files never enter the published tree.
 - **Genuine daughterboard decode is out of scope** for v1 (flattened ROMs only).
 - **Per-file license audit** owed before release (confirm every retained `rtl/` file is BSD).
 
-### 📎 Local references (verified)
-- Build harness pattern: `a local build dir/` (`build-active-player.sh`, `generate.tcl`, `reverse_rbf.py`)
-- Device string: `a local build dir/openfpga-NES/platform/pocket/pocket.tcl` (`DEVICE 5CEBA4F23C8`)
-- Quartus: Docker image `raetro/quartus:21.1` (Quartus Prime 21.1.1 Lite)
-- Cribbing material (gitignored): `reference/MiSTer-Arcade-Pacman-top.sv`, `reference/superbreakout-*.json`
+### 📎 References
+- Base core: [MiSTer-devel/Arcade-Pacman_MiSTer](https://github.com/MiSTer-devel/Arcade-Pacman_MiSTer)
+- APF template: [open-fpga/core-template](https://github.com/open-fpga/core-template)
+- Pocket IP: [agg23/analogue-pocket-utils](https://github.com/agg23/analogue-pocket-utils)
+- Vertical-arcade reference: [ericlewis/openfpga-superbreakout](https://github.com/ericlewis/openfpga-superbreakout)

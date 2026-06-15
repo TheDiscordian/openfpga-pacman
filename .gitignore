@@ -25,3 +25,6 @@
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Quartus assignment-defaults artifact
+/src/fpga/*.qdf
