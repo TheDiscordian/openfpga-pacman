@@ -508,96 +508,40 @@ core_bridge_cmd icb (
 // PLL output has a minimum output frequency anyway.
 
 
-assign video_rgb_clock = clk_core_12288;
-assign video_rgb_clock_90 = clk_core_12288_90deg;
+assign video_rgb_clock = clk_pix;
+assign video_rgb_clock_90 = clk_pix_90;
 assign video_rgb = vidout_rgb;
 assign video_de = vidout_de;
 assign video_skip = vidout_skip;
 assign video_vs = vidout_vs;
 assign video_hs = vidout_hs;
 
-    localparam  VID_V_BPORCH = 'd10;
-    localparam  VID_V_ACTIVE = 'd240;
-    localparam  VID_V_TOTAL = 'd512;
-    localparam  VID_H_BPORCH = 'd10;
-    localparam  VID_H_ACTIVE = 'd320;
-    localparam  VID_H_TOTAL = 'd400;
-
-    reg [15:0]  frame_count;
-    
-    reg [9:0]   x_count;
-    reg [9:0]   y_count;
-    
-    wire [9:0]  visible_x = x_count - VID_H_BPORCH;
-    wire [9:0]  visible_y = y_count - VID_V_BPORCH;
+    // -----------------------------------------------------------------------
+    // Pac-Man video. The PACMAN core scans its native ~288x224 raster and
+    // updates RGB + blank/sync on the ENA_6 (6.144 MHz) beat in the clk_sys
+    // domain. clk_pix is the same 6.144 MHz PLL output, so we register one
+    // fresh pixel per clk_pix edge. Portrait rotation is the scaler's job
+    // (video.json rotation:270). 3:3:2 core RGB -> 8:8:8.
+    // -----------------------------------------------------------------------
+    wire [2:0]  core_r, core_g;
+    wire [1:0]  core_b;
+    wire        core_hsync, core_vsync, core_hblank, core_vblank;
 
     reg [23:0]  vidout_rgb;
-    reg         vidout_de, vidout_de_1;
+    reg         vidout_de;
     reg         vidout_skip;
     reg         vidout_vs;
-    reg         vidout_hs, vidout_hs_1;
-    
-    reg [9:0]   square_x = 'd135;
-    reg [9:0]   square_y = 'd95;
+    reg         vidout_hs;
 
-always @(posedge clk_core_12288 or negedge reset_n) begin
-
-    if(~reset_n) begin
-    
-        x_count <= 0;
-        y_count <= 0;
-        
-    end else begin
-        vidout_de <= 0;
-        vidout_skip <= 0;
-        vidout_vs <= 0;
-        vidout_hs <= 0;
-        
-        vidout_hs_1 <= vidout_hs;
-        vidout_de_1 <= vidout_de;
-        
-        // x and y counters
-        x_count <= x_count + 1'b1;
-        if(x_count == VID_H_TOTAL-1) begin
-            x_count <= 0;
-            
-            y_count <= y_count + 1'b1;
-            if(y_count == VID_V_TOTAL-1) begin
-                y_count <= 0;
-            end
-        end
-        
-        // generate sync 
-        if(x_count == 0 && y_count == 0) begin
-            // sync signal in back porch
-            // new frame
-            vidout_vs <= 1;
-            frame_count <= frame_count + 1'b1;
-        end
-        
-        // we want HS to occur a bit after VS, not on the same cycle
-        if(x_count == 3) begin
-            // sync signal in back porch
-            // new line
-            vidout_hs <= 1;
-        end
-
-        // inactive screen areas are black
-        vidout_rgb <= 24'h0;
-        // generate active video
-        if(x_count >= VID_H_BPORCH && x_count < VID_H_ACTIVE+VID_H_BPORCH) begin
-
-            if(y_count >= VID_V_BPORCH && y_count < VID_V_ACTIVE+VID_V_BPORCH) begin
-                // data enable. this is the active region of the line
-                vidout_de <= 1;
-                
-                vidout_rgb[23:16] <= 8'd60;
-                vidout_rgb[15:8]  <= 8'd60;
-                vidout_rgb[7:0]   <= 8'd60;
-                
-            end 
-        end
-    end
+always @(posedge clk_pix) begin
+    vidout_skip <= 1'b0;
+    vidout_hs   <= core_hsync;
+    vidout_vs   <= core_vsync;
+    vidout_de   <= ~(core_hblank | core_vblank);
+    vidout_rgb  <= (core_hblank | core_vblank) ? 24'h0 :
+                   { core_r, core_r, core_r[2:1],
+                     core_g, core_g, core_g[2:1],
+                     core_b, core_b, core_b, core_b };
 end
 
 
@@ -653,9 +597,10 @@ end
 ///////////////////////////////////////////////
 
 
-    wire    clk_core_12288;
-    wire    clk_core_12288_90deg;
-    
+    wire    clk_sys;       // 24.576 MHz core carrier (ENA_6 = /4 = 6.144 MHz)
+    wire    clk_pix;       // 6.144 MHz pixel clock (video_rgb_clock)
+    wire    clk_pix_90;    // 6.144 MHz @ 90 deg (video_rgb_clock_90 / DDIO)
+
     wire    pll_core_locked;
     wire    pll_core_locked_s;
 synch_3 s01(pll_core_locked, pll_core_locked_s, clk_74a);
@@ -663,12 +608,92 @@ synch_3 s01(pll_core_locked, pll_core_locked_s, clk_74a);
 mf_pllbase mp1 (
     .refclk         ( clk_74a ),
     .rst            ( 0 ),
-    
-    .outclk_0       ( clk_core_12288 ),
-    .outclk_1       ( clk_core_12288_90deg ),
-    
+
+    .outclk_0       ( clk_sys ),
+    .outclk_1       ( clk_pix ),
+    .outclk_2       ( clk_pix_90 ),
+
     .locked         ( pll_core_locked )
 );
+
+
+// ===========================================================================
+// Pac-Man core integration
+// ===========================================================================
+
+    // Clock enables in the clk_sys (24.576 MHz) domain, matching the MiSTer
+    // reference dividers. ENA_6 = 6.144 MHz (pixel + CPU beat); ENA_4/ENA_1M79
+    // feed only variant sound chips, unused for Ms. Pac-Man.
+    reg [1:0] div6   = 0;  reg ce_6m   = 0;
+    reg [2:0] div4   = 0;  reg ce_4m   = 0;
+    reg [3:0] div179 = 0;  reg ce_1m79 = 0;
+    always @(posedge clk_sys) begin
+        div6   <= div6 + 2'd1;                              ce_6m   <= (div6   == 2'd0);
+        div4   <= (div4   == 3'd5)  ? 3'd0 : div4   + 3'd1; ce_4m   <= (div4   == 3'd0);
+        div179 <= (div179 == 4'd12) ? 4'd0 : div179 + 4'd1; ce_1m79 <= (div179 == 4'd0);
+    end
+
+    // Hold the core in reset until the PLL has locked and every required ROM
+    // data slot has finished loading.
+    wire reset_n_s, dl_complete_s;
+    synch_3 s_rst (reset_n,              reset_n_s,     clk_sys);
+    synch_3 s_dl  (dataslot_allcomplete, dl_complete_s, clk_sys);
+    wire core_reset = ~reset_n_s | ~dl_complete_s;
+
+    // ROM load: APF bridge writes -> the core's MiSTer-style dn_* download bus.
+    wire        ioctl_wr;
+    wire [15:0] ioctl_addr;
+    wire [7:0]  ioctl_data;
+    data_loader #(
+        .ADDRESS_MASK_UPPER_4 (4'h0),
+        .ADDRESS_SIZE         (16),
+        .OUTPUT_WORD_SIZE     (1)
+    ) rom_loader (
+        .clk_74a              (clk_74a),
+        .clk_memory           (clk_sys),
+        .bridge_wr            (bridge_wr),
+        .bridge_endian_little (bridge_endian_little),
+        .bridge_addr          (bridge_addr),
+        .bridge_wr_data       (bridge_wr_data),
+        .write_en             (ioctl_wr),
+        .write_addr           (ioctl_addr),
+        .write_data           (ioctl_data)
+    );
+
+    // Controller: cont1_key bitmap -> Pac-Man IN0/IN1 (active-low). Single
+    // player, upright cabinet; coin = Select, start 1P = Start.
+    wire m_up    = cont1_key[0];
+    wire m_down  = cont1_key[1];
+    wire m_left  = cont1_key[2];
+    wire m_right = cont1_key[3];
+    wire m_coin  = cont1_key[14];
+    wire m_start = cont1_key[15];
+    wire [7:0] pac_in0 = { 1'b1, 1'b1, ~m_coin,  1'b1, ~m_down, ~m_right, ~m_left, ~m_up };
+    wire [7:0] pac_in1 = { 1'b1, 1'b1, ~m_start, 1'b1, 1'b1,    1'b1,     1'b1,    1'b1  };
+
+    // Ms. Pac-Man: mod_ms=1, all other variants 0. DIP defaults from the MRA
+    // (FF,FF,C9): dipsw1=C9 (1c/1c, 3 lives, bonus 10k, normal), dipsw2=FF.
+    wire [9:0] pac_audio;
+    pacman pacman_core (
+        .O_VIDEO_R (core_r), .O_VIDEO_G (core_g), .O_VIDEO_B (core_b),
+        .O_HSYNC (core_hsync), .O_VSYNC (core_vsync),
+        .O_HBLANK (core_hblank), .O_VBLANK (core_vblank),
+        .O_AUDIO (pac_audio),
+        .in0 (pac_in0), .in1 (pac_in1),
+        .dipsw1 (8'hC9), .dipsw2 (8'hFF),
+        .mod_plus (1'b0), .mod_jmpst (1'b0), .mod_bird (1'b0), .mod_mrtnt (1'b0),
+        .mod_ms (1'b1), .mod_woodp (1'b0), .mod_eeek (1'b0), .mod_glob (1'b0),
+        .mod_alib (1'b0), .mod_ponp (1'b0), .mod_van (1'b0), .mod_dshop (1'b0),
+        .mod_club (1'b0),
+        .flip_screen (1'b0), .h_offset (3'd0), .v_offset (3'd0),
+        .dn_addr (ioctl_addr), .dn_data (ioctl_data), .dn_wr (ioctl_wr),
+        .pause (1'b0),
+        .hs_address (12'd0), .hs_data_in (8'd0), .hs_data_out (),
+        .hs_write_enable (1'b0), .hs_access_read (1'b0), .hs_access_write (1'b0),
+        .RESET (core_reset),
+        .CLK (clk_sys),
+        .ENA_6 (ce_6m), .ENA_4 (ce_4m), .ENA_1M79 (ce_1m79)
+    );
 
 
     
