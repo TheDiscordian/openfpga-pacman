@@ -639,7 +639,7 @@ end
 ///////////////////////////////////////////////
 
 
-    wire    clk_sys;       // 49.152 MHz core carrier (ENA_6 = /8 = 6.144 MHz)
+    wire    clk_sys;       // 24.576 MHz core carrier (ENA_6 = /4 = 6.144 MHz)
     wire    clk_pix;       // 6.144 MHz pixel clock (video_rgb_clock)
     wire    clk_pix_90;    // 6.144 MHz @ 90 deg (video_rgb_clock_90 / DDIO)
 
@@ -663,16 +663,16 @@ mf_pllbase mp1 (
 // Pac-Man core integration
 // ===========================================================================
 
-    // Clock enables in the clk_sys (49.152 MHz) domain. ENA_6 = 6.144 MHz
-    // (pixel + CPU beat, clk_sys/8); ENA_4/ENA_1M79 feed only variant sound
-    // chips, unused for Pac-Man / Ms. Pac-Man (approximate dividers are fine).
-    reg [2:0] div6   = 0;  reg ce_6m   = 0;
-    reg [3:0] div4   = 0;  reg ce_4m   = 0;
-    reg [4:0] div179 = 0;  reg ce_1m79 = 0;
+    // Clock enables in the clk_sys (24.576 MHz) domain, matching the MiSTer
+    // reference dividers. ENA_6 = 6.144 MHz (pixel + CPU beat); ENA_4/ENA_1M79
+    // feed only variant sound chips, unused for Ms. Pac-Man.
+    reg [1:0] div6   = 0;  reg ce_6m   = 0;
+    reg [2:0] div4   = 0;  reg ce_4m   = 0;
+    reg [3:0] div179 = 0;  reg ce_1m79 = 0;
     always @(posedge clk_sys) begin
-        div6   <= div6 + 3'd1;                               ce_6m   <= (div6   == 3'd0);
-        div4   <= (div4   == 4'd11) ? 4'd0 : div4   + 4'd1;  ce_4m   <= (div4   == 4'd0);
-        div179 <= (div179 == 5'd27) ? 5'd0 : div179 + 5'd1;  ce_1m79 <= (div179 == 5'd0);
+        div6   <= div6 + 2'd1;                              ce_6m   <= (div6   == 2'd0);
+        div4   <= (div4   == 3'd5)  ? 3'd0 : div4   + 3'd1; ce_4m   <= (div4   == 3'd0);
+        div179 <= (div179 == 4'd12) ? 4'd0 : div179 + 4'd1; ce_1m79 <= (div179 == 4'd0);
     end
 
     // Hold the core in reset until the PLL has locked and every required ROM
