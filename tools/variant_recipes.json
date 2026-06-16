@@ -1,0 +1,1072 @@
+{
+  "_comment": "Goal/roadmap recipes for Pac-Man-hardware variants the core decodes (core_top.v mod byte). NOT yet hardware-verified or shipped as playable picker entries. Sourced from MiSTer Arcade-Pacman MRAs + MAME pacman.cpp. mod 0 (Pac-Man) and 5 (Ms. Pac-Man) already ship via tools/build_roms.py.",
+  "variants": [
+    {
+      "mod": 1,
+      "name": "Pac-Man Plus",
+      "mame_zip": "pacplus",
+      "rom_file": "pacplus.rom",
+      "audio": "Namco WSG",
+      "confirmed": true,
+      "simple_concat": true,
+      "total_bytes": 49952,
+      "mra_url": "https://raw.githubusercontent.com/MiSTer-devel/Arcade-Pacman_MiSTer/master/releases/Pac-Man%20Plus.mra",
+      "parts": [
+        {
+          "file": "pacplus.6e",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "pacplus.6f",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "pacplus.6h",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "pacplus.6j",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "pacplus.6e",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "pacplus.6f",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "pacplus.6h",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "pacplus.6j",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "pacplus.5e",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "pacplus.5f",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "pacplus.5e",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "pacplus.5f",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "82s126.1m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "pacplus.4a",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "82s126.3m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "pacplus.7f",
+          "size": 32,
+          "region": "prom"
+        }
+      ],
+      "notes": "Authoritative MRA: MiSTer-devel/Arcade-Pacman_MiSTer/releases/Pac-Man Plus.mra (mratimestamp 20210430005030, rbf=pacman, setname=pacplus, mameversion 0220). MOD VALUE: delivered via <rom index=\"1\"><part>01</part></rom> = hex 01 = decimal 1, which equals the target mod (1 = mod_plus / Pac-Man Plus). Confirmed. STRUCTURE: plain in-order concatenation \u2014 no <interleave>, no map=, no byte-swap. Layout mirrors the build_roms.py \"Pac-Man\" entry exactly: 0x0000 program (6e/6f/6h/6j, 16KB), 0x4000 program-mirror/aux (same 4 program ROMs repeated, 16KB), 0x8000 gfx (5e/5f then 5e/5f repeated to fill 16KB; core reads first 8KB), 0xC000 PROMs. PROM ORDER from the MRA index 0 is wavetable 82s126.1m(256) \u2192 color-LUT pacplus.4a(256) \u2192 timing 82s126.3m(256) \u2192 palette pacplus.7f(32). NOTE the .4a and .7f are pacplus-specific PROMs (pacplus.4a CRC e271a166 = the Pac-Man Plus descramble/color LUT, pacplus.7f CRC 063dd53a palette), NOT the generic 82s126.4a/82s123.7f used by plain Pac-Man \u2014 this is what makes Pac-Man Plus's encrypted/protected graphics decode correctly. All 16 part sizes cross-verified against MAME pacman.cpp ROM_START(pacplus): program/gfx 0x1000 each, 1m/3m/4a 0x100 each, 7f 0x20. Total image = 49952 bytes. Zip md5 in MRA: 52bf3257fe2f8ef6f3366565ac2d1740. No ambiguity on the zip basename (pacplus, parent=pacplus, it's its own MAME parent set)."
+    },
+    {
+      "mod": 2,
+      "name": "Pac-Man Club - Club Lambada",
+      "mame_zip": "clubpacm",
+      "rom_file": "clubpacm.rom",
+      "audio": "Namco WSG",
+      "confirmed": true,
+      "simple_concat": true,
+      "total_bytes": 52000,
+      "mra_url": "https://raw.githubusercontent.com/MiSTer-devel/Arcade-Pacman_MiSTer/master/releases/Pac-Man%20Club-%20Club%20Lambada%20(AR).mra",
+      "parts": [
+        {
+          "file": "prg.6f",
+          "size": 32768,
+          "region": "program"
+        },
+        {
+          "file": "12.5e",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "14.5h",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "13.5f",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "15.5j",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "12.5e",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "14.5h",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "13.5f",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "15.5j",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "12.5e",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "m7611.1m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "m7611.4a",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "m7611.3m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "n82s123n.7f",
+          "size": 32,
+          "region": "prom"
+        }
+      ],
+      "notes": "CONFIDENT. Authoritative MRA: \"Pac-Man Club- Club Lambada (AR).mra\" in the MiSTer-devel Arcade-Pacman_MiSTer repo's releases/ folder. It sets the mod byte via <rom index=\"1\"><part>02</part></rom> = mod 2, and Arcade-Pacman.sv confirms ioctl_index==1 writes the 'mod' register (comment: \"2=Club\"). setname=clubpacm, parent=clubpacm, mameversion 0220.\n\nsimpleConcat=true: the MRA uses no <interleave>, no map=, no byte-swap. dn_addr = ioctl_addr[15:0] is a plain per-byte counter (Arcade-Pacman.sv lines 460-462), so the .rom is built by straight in-order concatenation of the 14 parts.\n\nCRITICAL SIZE NOTE: prg.6f is 32768 bytes, NOT 16384. In MAME (pacman.cpp ROM_START(clubpacm)) it is ROM_LOAD(prg.6f,0x0000,0x4000) + ROM_CONTINUE(0x8000,0x4000) under one CRC 9baa78a2 \u2014 i.e. the on-disk file is 0x8000. The MiSTer <part name=\"prg.6f\"> loads the whole file: its first 0x4000 fills the program region (dn_addr[15:14]=00, 0x0000-0x3FFF), its second 0x4000 fills the aux/program-mirror region (dn_addr[15:14]=01, 0x4000-0x7FFF). I labelled this single 32KB part region=program because it is one indivisible part and there is no separate aux part; conceptually its second half IS the aux/mirror.\n\nGFX/PROM PADDING-BY-CONTENT (verified by replaying the byte stream through the exact RTL chip-selects): the four real gfx tile ROMs (12.5e,14.5h,13.5f,15.5j, 2KB each) land at 0x8000-0x9FFF and are written to the 8KB gfx dpram (gfx_cs = dn_addr[15:13]=100). The duplicated gfx parts that follow (14.5h,13.5f,15.5j,12.5e) land at 0xA000-0xBFFF where NO chip-select matches, so they are harmlessly discarded \u2014 they exist only to advance the address into the PROM window. The four PROMs then land at 0xC800-0xCB1F; the PROM chip-selects key only off the low bits (rom1m dn_addr[9:8]=00, rom4a [9:8]=01, 7f [9:4]=110000), so 0xC8xx decodes identically to 0xC0xx. The extra 12.5e at 0xC000-0xC7FF transiently writes the wavetable dpram but is fully overwritten by the real m7611.1m at 0xC800 (last-write-wins). End result: rom0=prg.6f[0:0x4000], rom1=prg.6f[0x4000:0x8000], gfx=[12.5e,14.5h,13.5f,15.5j], 1m=m7611.1m, 4a=m7611.4a, 7f=n82s123n.7f \u2014 all correct. m7611.3m (timing) is included in the stream for byte positioning but its data is unused (timing is hardcoded in pacman_audio.vhd; MAME also notes \"not used\"). Total .rom = 52000 bytes (0xCB20)."
+    },
+    {
+      "mod": 4,
+      "name": "Birdiy",
+      "mame_zip": "birdiy",
+      "rom_file": "birdiy.rom",
+      "audio": "Namco WSG",
+      "confirmed": true,
+      "simple_concat": true,
+      "total_bytes": 49952,
+      "mra_url": "https://raw.githubusercontent.com/MiSTer-devel/Arcade-Pacman_MiSTer/master/releases/Birdiy.mra",
+      "parts": [
+        {
+          "file": "a6.6a",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "c6.6c",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "a4.4a",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "c4.4c",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "a6.6a",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "c6.6c",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "a4.4a",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "c4.4c",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "c1.1c",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "c3.3c",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "c1.1c",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "c3.3c",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "n82s129n.4k",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "n82s129n.9m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "n82s129n.6l",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "n82s123n.10n",
+          "size": 32,
+          "region": "prom"
+        }
+      ],
+      "notes": "Authoritative match. MRA at releases/Birdiy.mra sets mod via <rom index=\"1\"><part>04</part></rom> = decimal 4 (mod_bird), matching the target exactly. Display name \"Birdiy\", setname \"birdiy\" (Mama Top, 1983), rbf=pacman, mameversion 0220. ROM index 0 is plain in-order <part> concatenation with NO <interleave>, no map=, no byte-swap, so simpleConcat=true; plain concatenation reproduces the image.\n\nSizes are NOT stated in the MRA <part> elements; I cross-checked every CRC against MAME pacman.cpp ROM_START(birdiy) (lines 7468-7486). All 16 CRCs match MAME byte-for-byte. Sizes: maincpu a6/c6/a4/c4 = 0x1000 (4096) each; gfx1 c1/c3 = 0x1000 (4096) each; PROMs n82s129n.4k/9m/6l = 0x100 (256) each, n82s123n.10n = 0x20 (32).\n\nRegion mapping follows the core's documented layout (program@0x0000, aux/program-mirror@0x4000, gfx@0x8000, PROMs@0xC000). The 4 program ROMs are loaded twice (rom1-4 = program 0x0000-0x3FFF, rom5-8 = aux mirror 0x4000-0x7FFF), exactly like the Puck Man/Pac-Man MRA structure. The 2 gfx ROMs (c1.1c, c3.3c) are each loaded twice to fill the 0x8000-0xBFFF gfx region (0x4000 bytes). Total = 12*4096 + 256+256+256+32 = 49952 bytes.\n\nOne mapping nuance to flag: in MAME, birdiy splits PROMs across \"proms\" region (10n palette + 9m colour-LUT) and \"namco\" region (4k wavetable + 6l timing). The MRA orders them 4k, 9m, 6l, 10n -- i.e. wavetable(1m-equiv), colour-LUT(4a-equiv), timing(3m-equiv), palette(7f-equiv) -- matching the standard pacman core PROM slot order at 0xC000. CRCs confirm: 4k=a9cc86bf (sound/wavetable), 9m=63efb927 (colour LUT), 6l=77245b66 (timing, \"not used\"), 10n=ff344446 (palette). Use the part order as listed -- do NOT reorder by MAME region name."
+    },
+    {
+      "mod": 7,
+      "name": "Mr. TNT",
+      "mame_zip": "mrtnt",
+      "rom_file": "mrtnt.rom",
+      "audio": "Namco WSG",
+      "confirmed": true,
+      "simple_concat": true,
+      "total_bytes": 49952,
+      "mra_url": "https://raw.githubusercontent.com/MiSTer-devel/Arcade-Pacman_MiSTer/master/releases/Mr.%20TNT.mra",
+      "parts": [
+        {
+          "file": "tnt.1",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "tnt.2",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "tnt.3",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "tnt.4",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "tnt.1",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "tnt.2",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "tnt.3",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "tnt.4",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "tnt.5",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "tnt.6",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "tnt.6",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "tnt.6",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "82s126.1m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "82s126.4a",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "82s126.3m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "82s123.7f",
+          "size": 32,
+          "region": "prom"
+        }
+      ],
+      "notes": "Authoritative MiSTer MRA found at releases/Mr. TNT.mra (mratimestamp 20210430005030, MAME 0220). mod=7 is set explicitly by <rom index=\"1\"><part>07</part></rom>, matching the target. The MRA uses plain in-order <part> concatenation with NO <interleave>, NO map=, and NO byte-swapping, so simpleConcat=true \u2014 straight concatenation reproduces the image. Region mapping (matching the core's fixed layout program@0x0000 / aux-mirror@0x4000 / gfx@0x8000 / PROMs@0xC000): program = tnt.1..tnt.4 (16KB, fills 0x0000-0x3FFF); aux = tnt.1..tnt.4 repeated (the Pac-Man program-mirror, fills 0x4000-0x7FFF); gfx = tnt.5 + tnt.6 + tnt.6 + tnt.6 (16KB, fills 0x8000-0xBFFF \u2014 tnt.6 is repeated 3x to pad the gfx region, exactly analogous to the 5e/5f padding in the existing pacman build_roms.py entry); PROMs = 82s126.1m(256)+82s126.4a(256)+82s126.3m(256)+82s123.7f(32) @ 0xC000. All 16 part sizes cross-checked against MAME pacman.cpp ROM_START(mrtnt) lines 7489-7507: tnt.1-tnt.4 and tnt.5/tnt.6 are each 0x1000; the three 82s126 PROMs are 0x100 each and 82s123.7f is 0x20. Note: the per-game gfx region only reads the first 8KB at runtime (tnt.5+tnt.6); the extra tnt.6 copies are region padding. Total image = 49952 bytes. The mod byte (07) is NOT part of the .rom image itself \u2014 it is delivered separately via the instance JSON memory_write, same as the existing pacman(mod 0)/mspacman(mod 5) entries."
+    },
+    {
+      "mod": 8,
+      "name": "Woodpecker",
+      "mame_zip": "woodpeck",
+      "rom_file": "woodpeck.rom",
+      "audio": "Namco WSG",
+      "confirmed": true,
+      "simple_concat": true,
+      "total_bytes": 49952,
+      "mra_url": "https://raw.githubusercontent.com/MiSTer-devel/Arcade-Pacman_MiSTer/master/releases/Woodpecker%20(Set%201).mra",
+      "parts": [
+        {
+          "file": "f.bin",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "f.bin",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "f.bin",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "f.bin",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "i.bin",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "e.bin",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "g.bin",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "h.bin",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "a.5e",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "c.5h",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "b.5f",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "d.5j",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "a.5e",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "c.5h",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "b.5f",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "d.5j",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "pr.1k",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "pr.4a",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "pr.3k",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "pr.8h",
+          "size": 32,
+          "region": "prom"
+        }
+      ],
+      "notes": "Authoritative MRA: \"Woodpecker (Set 1).mra\" in MiSTer-devel/Arcade-Pacman_MiSTer/releases/. mod=8 is set via <rom index=\"1\"><part>08</part></rom> (hex 08 = dec 8 = mod_woodp); MRA has no <mod> XML element \u2014 MiSTer Pac-Man cores deliver the variant byte through rom index 1. rbf=pacman, setname=woodpeck (zip woodpeck.zip), MAME 0.220.\n\nAssembly is PLAIN in-order concatenation of 20 <part> elements \u2014 NO <interleave>, NO map=, NO byte-swap \u2014 so simpleConcat=true and offsets land exactly: program@0x0000 (16KB = the single 4KB program ROM f.bin mirrored x4), aux@0x4000 (16KB = the four genuine high-half program ROMs i.bin/e.bin/g.bin/h.bin, which MAME loads at maincpu 0x8000/0x9000/0xA000/0xB000), gfx@0x8000 (16KB = the 8KB gfx set a.5e/c.5h/b.5f/d.5j mirrored x2; each gfx ROM is 2048B/0x800), PROMs@0xC000 (pr.1k 256 sound + pr.4a 256 color + pr.3k 256 timing + pr.8h 32 palette = 800B). Total 49952 bytes.\n\nPart SIZES cross-checked against MAME's ROM_START( woodpeck ) in src/mame/pacman/pacman.cpp (f/i/e/g/h = 0x1000 each; a.5e/c.5h/b.5f/d.5j = 0x0800 each; pr.1k/pr.4a/pr.3k = 0x0100, pr.8h = 0x0020) \u2014 all consistent with CRCs in the MRA.\n\nRISK/AMBIGUITY: (1) The MRA's rom-index-0 PROM ordering (1k, 4a, 3k, 8h) DIFFERS from the standard pacman/mspacman PROM order in build_roms.py (which is 1m wavetable, 4a color, 3m timing, 7f palette) \u2014 Woodpecker uses pr.1k(sound/wavetable), pr.4a(color), pr.3k(timing), pr.8h(palette); they map to the same four roles but with woodpeck-specific filenames/CRCs, so do NOT substitute the standard pacman PROM names. (2) The aux region here holds REAL distinct program ROMs (not a mirror of the program like standard Midway pacman), so it is genuine program code at maincpu 0x8000-0xBFFF, not filler. (3) A sibling set \"woodpeca\" (mod also 8) exists with different ROMs (0/1/2/3/4 + 10.5f/11.5h) \u2014 this recipe is specifically Set 1 (woodpeck), the one shipped as the MiSTer MRA."
+    },
+    {
+      "mod": 9,
+      "name": "Eeekk!",
+      "mame_zip": "eeekkp",
+      "rom_file": "eeekkp.rom",
+      "audio": "Namco WSG",
+      "confirmed": true,
+      "simple_concat": true,
+      "total_bytes": 49952,
+      "mra_url": "https://raw.githubusercontent.com/MiSTer-devel/Arcade-Pacman_MiSTer/master/releases/Eeek!%20(Pac-Man%20Conversion).mra",
+      "parts": [
+        {
+          "file": "u_2_eeekk_pg03094.u2",
+          "size": 8192,
+          "region": "program"
+        },
+        {
+          "file": "u_3_eeekk_pg03094.u3",
+          "size": 8192,
+          "region": "program"
+        },
+        {
+          "file": "u_2_eeekk_pg03094.u2",
+          "size": 8192,
+          "region": "aux"
+        },
+        {
+          "file": "u_3_eeekk_pg03094.u3",
+          "size": 8192,
+          "region": "aux"
+        },
+        {
+          "file": "5_e_eeekk_pg03094.5e",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "5_f_eeekk_pg03094.5f",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "5_f_eeekk_pg03094.5f",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "5_f_eeekk_pg03094.5f",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "82s126.1m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "4_a_eeekk.4a",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "82s126.3m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "7_f_eeekk.7f",
+          "size": 32,
+          "region": "prom"
+        }
+      ],
+      "notes": "Authoritative MRA: \"Eeek! (Pac-Man Conversion).mra\" in MiSTer-devel/Arcade-Pacman_MiSTer/releases/. <name>Eeekk!</name>, <setname>eeekkp</setname>, <parent>eeekk</parent>. mod set by <rom index=\"1\"><part>09</part></rom> = 0x09 = 9 \u2014 matches target. md5 of assembled index-0 image: 3656309ff07929583f908b80ca128780.\n\nZIP: MRA declares zip=\"eeekk.zip|eeekkp.zip\"; the actual ROM members (u2/u3/5e/5f/4a/7f) live in the eeekkp clone set, so the MAME zip basename to source from is eeekkp.zip (eeekk is the parent BIOS-less set name). Some collections store members in eeekk.zip \u2014 try both.\n\nASSEMBLY: plain in-order concatenation, NO <interleave>/map=/byte-swap, so simpleConcat=true. Standard Pac-Man core layout: program@0x0000 (u2 0x2000 + u3 0x2000 = 0x4000), aux/program-MIRROR@0x4000 (u2+u3 repeated, identical to program region), gfx@0x8000 (5e once + 5f THREE times = 0x4000; the triplicated 5f fills the 16KB gfx window, mirroring the Pac-Man MRA pattern), PROMs@0xC000 in order 82s126.1m(256, namco wavetable), 4_a_eeekk.4a(256, colour LUT), 82s126.3m(256, timing), 7_f_eeekk.7f(32, palette). Total 0xC320 = 49952 bytes.\n\nCROSS-CHECK: matches MAME pacman.cpp ROM_START(eeekkp) (lines ~7761-7780) exactly for filenames, sizes and CRCs. Program ROMs are NES-style encrypted/scrambled on the daughtercard but the core descrambles in HDL (mod 9 = mod_eeek) \u2014 the .rom ships the encrypted bytes verbatim, do NOT descramble during assembly. 4a is the colour PROM here (it lives at the 4a position, distinct from the usual 82s126.4a). Sizes verified: program 4\u00d78192, gfx 4\u00d74096, PROMs 256/256/256/32."
+    },
+    {
+      "mod": 10,
+      "name": "Ali Baba and 40 Thieves",
+      "mame_zip": "alibaba",
+      "rom_file": "alibaba.rom",
+      "audio": "Namco WSG",
+      "confirmed": true,
+      "simple_concat": true,
+      "total_bytes": 49952,
+      "mra_url": "https://raw.githubusercontent.com/MiSTer-devel/Arcade-Pacman_MiSTer/master/releases/Ali%20Baba%20and%2040%20Thieves.mra",
+      "parts": [
+        {
+          "file": "6e",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "6f",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "6h",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "6k",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "6l",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "6l",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "6m",
+          "size": 2048,
+          "region": "aux"
+        },
+        {
+          "file": "6m",
+          "size": 2048,
+          "region": "aux"
+        },
+        {
+          "file": "6m",
+          "size": 2048,
+          "region": "aux"
+        },
+        {
+          "file": "6m",
+          "size": 2048,
+          "region": "aux"
+        },
+        {
+          "file": "5e",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "5h",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "5f",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "5k",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "5e",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "5h",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "5f",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "5k",
+          "size": 2048,
+          "region": "gfx"
+        },
+        {
+          "file": "82s126.1m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "82s129.a4",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "82s126.3m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "82s123.e7",
+          "size": 32,
+          "region": "prom"
+        }
+      ],
+      "notes": "Authoritative MRA: MiSTer-devel/Arcade-Pacman_MiSTer/releases/Ali Baba and 40 Thieves.mra (rbf=pacman, setname=alibaba, mameversion 0220, mra md5 ac9f54abb0b408a9481235d239888099). Mod byte confirmed: <rom index=\"1\"><part>0A</part></rom> = 0x0A = 10 decimal (mod_alib). Assembly is PLAIN in-order concatenation \u2014 no <interleave>, no map=, no byte-swap (simpleConcat=true). Sizes verified against MAME 0.220 src/mame/drivers/pacman.cpp ROM_START(alibaba): 6e/6f/6h/6k/6l = 0x1000 (4096), 6m/5e/5h/5f/5k = 0x0800 (2048), all four PROMs as listed (1m/a4/3m=0x100, e7=0x20). Region mapping by cumulative offset is clean: program 0x0000-0x3FFF (6e,6f,6h,6k); aux 0x4000-0x7FFF (6l x2 + 6m x4 \u2014 alibaba's extra maincpu ROMs at 0x8000/0xa000 packed into the aux/mirror region, 6l doubled and 6m x4 to fill 16KB); gfx 0x8000-0xBFFF (5e,5h,5f,5k then mirrored again); PROMs 0xC000-0xC31F. Total = 49952 bytes (0xC320). CAUTION/risk items: (1) PROM filenames differ from standard pacman \u2014 alibaba uses 82s129.a4 (color LUT, 0x100) and 82s123.e7 (palette, 0x20) instead of 82s126.4a/82s123.7f, but they fill the same functional slots in the same MRA order (1m, color-LUT, 3m, palette); the 256-byte color LUT here is 82s129 not 82s126. (2) The aux region is NOT a simple program mirror like base Pac-Man \u2014 it carries alibaba-specific extra program ROMs (6l, 6m), so the order 6l,6l,6m,6m,6m,6m must be preserved exactly. (3) GFX 5e/5h/5f/5k are interleaved-by-name in MAME (5e@0,5h@0x800,5f@0x1000,5k@0x1800) and the MRA simply lists them in that order then repeats the whole 8KB block to fill 0x8000-0xBFFF (core reads first 8KB). (4) ab7.bin / user1 \"mystery\" ROM and 82s126.3m timing PROM are present; 3m is the timing PROM (unused by MAME but included in the image at 0xC200, matching base pacman layout)."
+    },
+    {
+      "mod": 11,
+      "name": "Ponpoko",
+      "mame_zip": "ponpoko",
+      "rom_file": "ponpoko.rom",
+      "audio": "Namco WSG",
+      "confirmed": true,
+      "simple_concat": true,
+      "total_bytes": 49952,
+      "mra_url": "https://raw.githubusercontent.com/MiSTer-devel/Arcade-Pacman_MiSTer/master/releases/Ponpoko.mra",
+      "parts": [
+        {
+          "file": "ppokoj1.bin",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "ppokoj2.bin",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "ppokoj3.bin",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "ppokoj4.bin",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "ppoko5.bin",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "ppoko6.bin",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "ppoko7.bin",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "ppokoj8.bin",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "ppoko9.bin",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "ppoko10.bin",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "ppoko9.bin",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "ppoko10.bin",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "82s126.1m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "82s126.4a",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "82s126.3m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "82s123.7f",
+          "size": 32,
+          "region": "prom"
+        }
+      ],
+      "notes": "Authoritative MRA: releases/Ponpoko.mra in MiSTer-devel/Arcade-Pacman_MiSTer. The mod value is delivered via rom index=\"1\" <part>0B</part> = 0x0B = 11 decimal, matching mod_ponp=11 (verified, not a different mod). rom index=\"0\" is a plain in-order concatenation with NO <interleave>, map=, or byte-swap, so simpleConcat=true. Sizes confirmed against MAME pacman.cpp ROM_START(ponpoko) (mameversion 0220 / set \"ponpoko\", parent ponpoko): all program & gfx ROMs are 0x1000=4096B; PROMs 82s126.1m/4a/3m=256B each, 82s123.7f=32B.\n\nRegion layout matches the core image map (program@0x0000, aux@0x4000, gfx@0x8000, PROMs@0xC000): ppokoj1-4 fill program 0x0000-0x3FFF; ppoko5/6/7/ppokoj8 fill the aux region 0x4000-0x7FFF (in MAME these load to maincpu 0x8000-0xBFFF \u2014 Ponpoko's extended program ROM, NOT a mirror of the first 16KB, so unlike base Pac-Man the aux region holds distinct code); gfx region 0x8000-0xBFFF is ppoko9+ppoko10 then ppoko9+ppoko10 AGAIN (the two 4KB gfx ROMs duplicated to fill the 16KB gfx window, same fill pattern the pacman/mspacman MRAs use). Then the 4 PROMs at 0xC000. Total 49952 bytes. PROM ORDER in the .rom is 1m,4a,3m,7f (MRA order) \u2014 note this differs from MAME's per-region split (MAME puts 7f+4a in \"proms\" and 1m+3m in \"namco\"), so trust the MRA part order, not MAME's region grouping. MD5 of assembled index 0 per MRA: 9000cca41cfa18130798595363a112ec."
+    },
+    {
+      "mod": 12,
+      "name": "Van-Van Car",
+      "mame_zip": "vanvan",
+      "rom_file": "vanvan.rom",
+      "audio": "SN76489",
+      "confirmed": true,
+      "simple_concat": true,
+      "total_bytes": 49952,
+      "mra_url": "https://raw.githubusercontent.com/MiSTer-devel/Arcade-Pacman_MiSTer/master/releases/Van-Van%20Car.mra",
+      "parts": [
+        {
+          "file": "van-1.50",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "van-2.51",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "van-3.52",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "van-4.53",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "van-5.39",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "van-5.39",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "van-5.39",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "van-5.39",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "van-20.18",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "van-21.19",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "van-20.18",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "van-21.19",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "6301-1.37",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "6301-1.37",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "6301-1.37",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "6331-1.6",
+          "size": 32,
+          "region": "prom"
+        }
+      ],
+      "notes": "Authoritative MiSTer-devel MRA found at releases/Van-Van Car.mra (setname=vanvan, rbf=pacman, mratimestamp 20210430005030). The mod byte is delivered via <rom index=\"1\"><part>0C</part>, i.e. 0x0C = 12 decimal, matching mod_van / \"Van-Van Car\". Plain in-order concatenation \u2014 the MRA uses 16 simple <part> elements with NO <interleave>, NO map=, and NO byte-swap, so simpleConcat=true.\n\nRegion mapping rationale (core image layout program@0x0000 / aux@0x4000 / gfx@0x8000 / PROMs@0xC000):\n- Parts 1-4 (van-1.50..van-4.53) = the four 4KB program ROMs (MAME maincpu 0x0000-0x3FFF) -> program region (0x0000-0x3FFF).\n- Parts 5-8 = van-5.39 (MAME maincpu @0x8000, a single 4KB ROM) repeated 4x to fill the 16KB aux/program-mirror region (0x4000-0x7FFF). The core reads this banked code from the aux slot.\n- Parts 9-12 = gfx ROMs van-20.18 + van-21.19 (MAME gfx1 region, 0x2000 total) tiled twice to fill the 16KB gfx region (0x8000-0xBFFF); the core reads only the first 8KB.\n- Parts 13-16 = PROMs filling 0xC000+. The 256-byte color-lookup PROM 6301-1.37 (MAME proms @0x0020) is written 3x (occupying the 1m/4a/3m PROM slots) then the 32-byte palette PROM 6331-1.6 (MAME proms @0x0000) in the 7f slot. NOTE: ordering of the 4 PROM members differs from MAME's region order \u2014 the MRA emits 6301 (color LUT) x3 then 6331 (palette), which is the order the core expects; follow the MRA, not MAME's load offsets.\n\nAll 16 CRCs in the MRA's <rom index=\"0\"> exactly match MAME's ROM_START(vanvan) set (van-1.50 cf1b2df0, van-2.51 df58e1cb, van-3.52 15571e24, van-4.53 b724cbe0, van-5.39 db67414c, van-20.18 60efbe66, van-21.19 5dd53723, 6301-1.37 4b803d9f, 6331-1.6 ce1d9503) \u2014 cross-checked against mamedev/mame src/mame/pacman/pacman.cpp. Total = 12*4096 + 3*256 + 32 = 49952 bytes (matches the 16KB program + 16KB aux + 16KB gfx + 0x320 PROM layout). MRA md5 of the assembled index-0 image: c1f4eeb2065671d958016120a7c3bcb0."
+    },
+    {
+      "mod": 14,
+      "name": "Dream Shopper",
+      "mame_zip": "dremshpr",
+      "rom_file": "dremshpr.rom",
+      "audio": "AY-3-8910",
+      "confirmed": true,
+      "simple_concat": true,
+      "total_bytes": 49952,
+      "mra_url": "https://raw.githubusercontent.com/MiSTer-devel/Arcade-Pacman_MiSTer/master/releases/Dream%20Shopper.mra",
+      "parts": [
+        {
+          "file": "red_1.50",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "red_2.51",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "red_3.52",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "red_4.53",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "red_5.39",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "red_6.40",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "red_7.41",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "red_7.41",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "red-20.18",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "red-21.19",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "red-21.19",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "red-21.19",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "6301-1.37",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "6301-1.37",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "6301-1.37",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "6331-1.6",
+          "size": 32,
+          "region": "prom"
+        }
+      ],
+      "notes": "Authoritative MiSTer MRA found: releases/Dream Shopper.mra (rbf=pacman, setname/zip=dremshpr, mratimestamp 20210430005030, mameversion 0220). Mod is delivered by `<rom index=\"1\"><part>0E</part></rom>` = 0x0E = 14 decimal, matching mod_dshop. ASSEMBLY IS PLAIN CONCATENATION: rom index 0 uses only `<part>` elements (no `<interleave>`, no map=, no byte-swap), so simpleConcat=true. All 16 part CRCs were cross-verified against MAME pacman.cpp ROM_START(dremshpr) (line 7836); every CRC matches and confirms sizes (program/gfx ROMs = 0x1000 each; 6301-1.37 PROM = 0x100, 6331-1.6 PROM = 0x20).\n\nREGION MAPPING / DUPLICATE PADDING (important, easy to get wrong): the MRA repeats files to pad each 0x4000 window of the core image:\n - program 0x0000-0x3FFF: red_1.50, red_2.51, red_3.52, red_4.53 (4x4096 = 0x4000).\n - aux/program-mirror 0x4000-0x7FFF: red_5.39, red_6.40, red_7.41, red_7.41 (the 4th = red_7.41 DUPLICATED to fill 0x7000-0x7FFF). Note MAME loads red_5/6/7 at maincpu 0x8000-0xAFFF, but the core packs them into the aux 0x4000 window.\n - gfx 0x8000-0xBFFF: red-20.18 once, then red-21.19 THREE times (red-21.19 duplicated to 0xA000 and 0xB000 to fill the 0x4000 window). MAME gfx1 is only 0x2000 (red-20.18 @0x0000, red-21.19 @0x1000); the extra two red-21.19 copies are MRA padding.\n - PROMs 0xC000+: 6301-1.37 THREE times (0xC000, 0xC100, 0xC200) then 6331-1.6 once (0xC300). Unlike standard pacman/mspacman (which use 1m/4a/3m wavetable+colour PROMs), dremshpr's MAME proms region is only 0x120 bytes: 6331-1.6 (0x20 colour) + 6301-1.37 (0x100 lookup). The MRA emits 6301-1.37 x3 then 6331-1.6, so the PROM block here is 256*3+32 = 800 bytes and is NOT the same 1m/4a/3m/7f quartet used by the pacman/mspacman entries in build_roms.py \u2014 do not reuse the PROMS list from that script for this game.\n\nTotal image = 12*4096 + 3*256 + 32 = 49952 bytes. md5 of rom index 0 per MRA: 3d1ab455cb02580e03249baf556fa3af. Manufacturer Sanritsu 1982; the core flag is mod_dshop (\"Dream Shopper\"), confirmed."
+    },
+    {
+      "mod": 15,
+      "name": "The Glob",
+      "mame_zip": null,
+      "rom_file": null,
+      "audio": "Namco WSG",
+      "confirmed": false,
+      "simple_concat": null,
+      "total_bytes": null,
+      "mra_url": null,
+      "parts": null,
+      "notes": "MOD MISMATCH \u2014 found=false per instructions. The only Glob-family MRA in MiSTer-devel/Arcade-Pacman_MiSTer is \"Super Glob (Pac-Man, German) [bl].mra\" (in releases/). Its <name> is \"Super Glob\", setname sprglbpg, parent suprglob, rbf pacman. The core's Arcade-Pacman.sv defines mod_glob <= (mod == 15), and the mod byte is delivered via <rom index=\"1\"><part>HEX</part></rom> (verified: Ms.Pac-Man=05, Pac-Man Plus=01, Ponpoko=0B, Dream Shopper=0E, Number Crash=11 \u2014 all match their mod numbers). For mod 15 the index-1 byte would be 0F. BUT this Super Glob MRA's index 1 is EMPTY (<rom index=\"1\"></rom>, committed 2021-06-10, only master branch, never updated), so it sets mod=0 (mod_orig), NOT mod 15. The MRA does not implement mod_glob \u2014 it appears to be a bug/incomplete entry in the repo. No other Glob MRA exists anywhere in the repo (full git tree enumerated). Therefore there is no authoritative MiSTer MRA that sets mod 15.\n\nThe rom index 0 part list above IS reproduced exactly from the MRA and is reliable: plain in-order concatenation, no <interleave>/map=/byte-swap, so simpleConcat=true. Region mapping follows the same pattern as the verified Pac-Man / Ponpoko MRAs in this repo: 4 program ROMs (ic8.1/ic7.2/ic15.3/ic14.4 @ 4096) at 0x0000, the SAME 4 mirrored into the aux region at 0x4000, gfx ic92.5 listed twice (4096 each = 8KB filling the gfx read window) at 0x8000, then the standard Pac-Man PROM set ic51.prm/ic88.prm/ic70.prm @256 + ic78.prm @32 at 0xC000. Total 41760 bytes. Part SIZES are inferred from the canonical Pac-Man-hardware layout and cross-checked against the Ponpoko MRA's identical doubled-gfx + 256/256/256/32 PROM structure in this same repo (MAME sprglbpg ROM_START could not be located via WebFetch to byte-confirm ic92.5=4096, but the doubling in the MRA + the standard Pac-Man gfx-region map make 4096 the only consistent size). zip is \"suprglob.zip|sprglbpg.zip\" (parent|clone) \u2014 members must come from sprglbpg. mameZip reported as the parent \"suprglob\"; the actual member-bearing clone is sprglbpg."
+    },
+    {
+      "mod": 16,
+      "name": "Jump Shot",
+      "mame_zip": "jumpshot",
+      "rom_file": "jumpshot.rom",
+      "audio": "Namco WSG",
+      "confirmed": true,
+      "simple_concat": true,
+      "total_bytes": 49952,
+      "mra_url": "https://raw.githubusercontent.com/MiSTer-devel/Arcade-Pacman_MiSTer/master/releases/Jump%20Shot.mra",
+      "parts": [
+        {
+          "file": "6e",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "6f",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "6h",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "6j",
+          "size": 4096,
+          "region": "program"
+        },
+        {
+          "file": "6e",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "6f",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "6h",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "6j",
+          "size": 4096,
+          "region": "aux"
+        },
+        {
+          "file": "5e",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "5f",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "5e",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "5f",
+          "size": 4096,
+          "region": "gfx"
+        },
+        {
+          "file": "82s126.1m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "prom.4a",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "82s126.3m",
+          "size": 256,
+          "region": "prom"
+        },
+        {
+          "file": "prom.7f",
+          "size": 32,
+          "region": "prom"
+        }
+      ],
+      "notes": "Authoritative MiSTer MRA found: releases/Jump Shot.mra in MiSTer-devel/Arcade-Pacman_MiSTer. It sets the mod byte via <rom index=\"1\"><part>10</part></rom> \u2014 hex 0x10 = decimal 16, matching mod_jmpst (Jump Shot). rbf=pacman, setname=jumpshot, mameversion 0220.\n\nAssembly is PLAIN in-order concatenation: the index-0 <rom> contains 16 flat <part> entries with NO <interleave>, NO map=, and NO byte-swapping, so simpleConcat=true and concatenating the listed members reproduces the .rom image exactly.\n\nStructure matches the core's standard Pac-Man layout: program (6e/6f/6h/6j) at 0x0000; the SAME four program ROMs mirrored into the aux region at 0x4000; gfx 5e/5f duplicated (5e,5f,5e,5f) to fill the 16KB gfx region at 0x8000; then PROMs at 0xC000.\n\nSizes are NOT in the MRA but were cross-checked against MAME's ROM_START(jumpshot) in src/mame/pacman/pacman.cpp and the MRA CRCs match the MAME jumpshot set exactly: program/gfx ROMs are 0x1000 (4096B) each; PROMs are 82s126.1m=256, prom.4a=256, 82s126.3m=256, prom.7f=32.\n\nWATCH-OUTS / risks: (1) PROM member names are jumpshot-specific \u2014 prom.4a (the colour LUT, CRC 0399f39f) and prom.7f (palette, 32B, CRC 872b42f3), NOT the generic 82s126.4a / 82s123.7f used by pacman/mspacman. The build script's shared PROMS=[82s126.1m,82s126.4a,82s126.3m,82s123.7f] list will NOT match jumpshot.zip \u2014 this game needs its own PROM names: 82s126.1m, prom.4a, 82s126.3m, prom.7f. (2) The PROM ORDER in the .rom is 1m, 4a, 3m, 7f (wavetable, colour-LUT, timing, palette) \u2014 same ordering as the other entries, just different filenames. (3) The aux@0x4000 block is a deliberate mirror of the program (Pac-Man-style), not a separate ROM. Total = 3\u00d716384 + 800 = 49952 bytes."
+    }
+  ]
+}

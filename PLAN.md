@@ -61,6 +61,27 @@ Ship zero ROM bytes. The repo carries HDL/bitstream + JSON only. `data.json` dec
 - **Genuine daughterboard decode is out of scope** for v1 (flattened ROMs only).
 - **Per-file license audit** owed before release (confirm every retained `rtl/` file is BSD).
 
+## 8. 🎯 Variant support roadmap
+
+The core decodes 14 Pac-Man-board variants via the mod byte (`core_top.v`); we ship **Pac-Man** (mod 0) and **Ms. Pac-Man** (mod 5). The rest are a **goal** — authoritative ROM recipes are captured in [`tools/variant_recipes.json`](tools/variant_recipes.json) (from the MiSTer Arcade-Pacman MRAs, cross-checked against MAME `pacman.cpp`). None are hardware-verified yet, so they are **not** shipped as playable picker entries. To add one: verify on device, then drop in its `build_roms.py` entry + instance JSON.
+
+| mod | Game | MAME set | Audio | Recipe |
+|----|------|----------|-------|--------|
+| 1  | Pac-Man Plus | `pacplus` | Namco WSG | ✅ |
+| 2  | Pac-Man Club (Club Lambada) | `clubpacm` | Namco WSG | ✅ |
+| 4  | Birdiy | `birdiy` | Namco WSG | ✅ |
+| 7  | Mr. TNT | `mrtnt` | Namco WSG | ✅ |
+| 8  | Woodpecker | `woodpeck` | Namco WSG | ✅ |
+| 9  | Eeekk! | `eeekkp` | Namco WSG | ✅ |
+| 10 | Ali Baba and 40 Thieves | `alibaba` | Namco WSG | ✅ |
+| 11 | Ponpoko | `ponpoko` | Namco WSG | ✅ |
+| 12 | Van-Van Car | `vanvan` | **SN76489** | ✅ |
+| 14 | Dream Shopper | `dremshpr` | **AY-3-8910** | ✅ |
+| 15 | The Glob | — | Namco WSG | ⏳ unconfirmed |
+| 16 | Jump Shot | `jumpshot` | Namco WSG | ✅ |
+
+**Audio caveat:** all but two run on the standard Namco WSG. **Van-Van Car** (dual SN76489) and **Dream Shopper** (AY-3-8910) use different sound chips — the core emulates both (`sn76489/`, `ym2149.sv`), but they're the most likely to surprise on first hardware test, so tackle them last.
+
 ### 📎 References
 - Base core: [MiSTer-devel/Arcade-Pacman_MiSTer](https://github.com/MiSTer-devel/Arcade-Pacman_MiSTer)
 - APF template: [open-fpga/core-template](https://github.com/open-fpga/core-template)
