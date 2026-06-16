@@ -521,7 +521,7 @@ assign video_hs = vidout_hs;
     // updates RGB + blank/sync on the ENA_6 (6.144 MHz) beat in the clk_sys
     // domain. clk_pix is the same 6.144 MHz PLL output, so we register one
     // fresh pixel per clk_pix edge. Portrait rotation is the scaler's job
-    // (video.json rotation:90). 3:3:2 core RGB -> 8:8:8.
+    // (video.json rotation:270). 3:3:2 core RGB -> 8:8:8.
     // -----------------------------------------------------------------------
     wire [2:0]  core_r, core_g;
     wire [1:0]  core_b;
@@ -543,21 +543,11 @@ assign video_hs = vidout_hs;
     reg        hs_d = 0, vs_d = 0, hb_d = 0, vb_d = 0;
     reg  [9:0] h_start = 0, h_end = 10'h3ff, v_start = 0, v_end = 10'h3ff;
 
-    // The grown window (active + BORDER) drives DE for the black margin; video.json
-    // width/height match this region, so DE must not change.
+    // The grown window (active +/- BORDER) drives DE for the black margin. RGB is
+    // gated on the core's EXACT blanking so no blanking data can leak into the
+    // picture (the border ring is therefore always black).
     wire in_window = (hcnt + BORDER >= h_start) && (hcnt <= h_end + BORDER) &&
                      (vcnt + BORDER >= v_start) && (vcnt <= v_end + BORDER);
-
-    // RGB shows picture only STRICTLY inside the detected active region (pulled in
-    // 1px on every side) AND while the live blank is clear. The 1px guard drops the
-    // active<->blank boundary pixel the core emits mid-transition (the core blanks
-    // the pixel pipeline on an internal hblank offset from the O_HBLANK port, and
-    // the colour PROMs settle a clk_sys sub-cycle late), which under rotation:90
-    // shows up as a faint flicker along the first active line. The border ring and
-    // every blanking pixel stay clean black.
-    wire in_pic = (hcnt >= h_start + 10'd1) && (hcnt + 10'd2 <= h_end) &&
-                  (vcnt >= v_start + 10'd1) && (vcnt + 10'd2 <= v_end) &&
-                  ~(core_hblank | core_vblank);
 
 always @(posedge clk_pix) begin
     hs_d <= core_hsync;  vs_d <= core_vsync;
@@ -580,9 +570,10 @@ always @(posedge clk_pix) begin
     vidout_hs   <= core_hsync;
     vidout_vs   <= core_vsync;
     vidout_de   <= in_window;
-    vidout_rgb  <= in_pic ? { core_r, core_r, core_r[2:1],
-                              core_g, core_g, core_g[2:1],
-                              core_b, core_b, core_b, core_b } : 24'h0;
+    vidout_rgb  <= (core_hblank | core_vblank) ? 24'h0 :
+                   { core_r, core_r, core_r[2:1],
+                     core_g, core_g, core_g[2:1],
+                     core_b, core_b, core_b, core_b };
 end
 
 
