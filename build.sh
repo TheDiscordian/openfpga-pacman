@@ -12,6 +12,9 @@ CORE_DIR="$ROOT/dist/Cores/TheDiscordian.PacMan"
 
 stamp() { date '+%Y-%m-%d %H:%M:%S'; }
 
+# Ensure the analogue-pocket-utils IP submodule is checked out (git clones only).
+[ -d "$ROOT/.git" ] && git -C "$ROOT" submodule update --init --recursive
+
 echo "=== [$(stamp)] Quartus compile (Docker: $QUARTUS_IMAGE) ==="
 rm -f "$RBF"
 docker run --rm -v "$ROOT":/build -w /build/src/fpga "$QUARTUS_IMAGE" \

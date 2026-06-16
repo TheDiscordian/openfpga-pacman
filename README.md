@@ -29,9 +29,10 @@ This writes `pacman.rom`, `mspacman.rom`, `pacmanf.rom`, and `mspacmnf.rom`. Cop
 
 ## 🔧 Building
 
-Needs Docker (for Quartus Prime Lite) and Python 3:
+Needs Docker (for Quartus Prime Lite) and Python 3. Clone with submodules (or just run the build — it initialises them):
 
 ```bash
+git clone --recursive https://github.com/TheDiscordian/openfpga-pacman
 ./build.sh
 ```
 
