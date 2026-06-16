@@ -533,22 +533,48 @@ assign video_hs = vidout_hs;
     reg         vidout_vs;
     reg         vidout_hs;
 
-    // DE is exactly the core's active region (O_HBLANK/O_VBLANK low). The
-    // displayed window then equals video.json (288x224) precisely. The previous
-    // auto-detect + 1px border latched an ASYMMETRIC margin (2px top/right, 1px
-    // bottom/left), making DE 291x227 vs the 290x226 video.json -- a 1px geometry
-    // mismatch the scaler rendered as the right/top edge stripe. RGB is the core
-    // picture, black during blanking.
-    wire active = ~(core_hblank | core_vblank);
+    // Symmetric 1px black border around the active region. Auto-detect the active
+    // bounds from the blanking edges, then grow by BORDER. The latches capture
+    // h_end as the first BLANK column (last_active+1) and v_start one line early,
+    // so the right/top comparisons subtract 1 to keep the margin symmetric -- 1px
+    // on every side. DE = active + 2*BORDER = 290x226, matching video.json
+    // exactly (no geometry mismatch -> no edge stripe). RGB is the core picture,
+    // black in the border ring.
+    localparam [9:0] BORDER = 10'd1;
+
+    reg  [9:0] hcnt = 0, vcnt = 0;
+    reg        hs_d = 0, vs_d = 0, hb_d = 0, vb_d = 0;
+    reg  [9:0] h_start = 0, h_end = 10'h3ff, v_start = 0, v_end = 10'h3ff;
+
+    wire in_window = (hcnt + BORDER >= h_start) && (hcnt + 10'd1 <= h_end + BORDER) &&
+                     (vcnt + BORDER >= v_start + 10'd1) && (vcnt <= v_end + BORDER);
 
 always @(posedge clk_pix) begin
+    hs_d <= core_hsync;  vs_d <= core_vsync;
+    hb_d <= core_hblank; vb_d <= core_vblank;
+
+    // pixel/line counters: hcnt resets each line on hsync, vcnt each frame on vsync
+    if (core_hsync & ~hs_d) hcnt <= 10'd0;
+    else                    hcnt <= hcnt + 10'd1;
+    if (core_vsync & ~vs_d)      vcnt <= 10'd0;
+    else if (core_hsync & ~hs_d) vcnt <= vcnt + 10'd1;
+
+    // latch active-window bounds from the blanking edges (stable frame-to-frame)
+    if (~core_hblank &  hb_d) h_start <= hcnt;
+    if ( core_hblank & ~hb_d) h_end   <= hcnt;
+    if (~core_vblank &  vb_d) v_start <= vcnt;
+    if ( core_vblank & ~vb_d) v_end   <= vcnt;
+
+    // DE across the grown window; RGB black wherever the core is blanking, so the
+    // border ring is always black.
     vidout_skip <= 1'b0;
     vidout_hs   <= core_hsync;
     vidout_vs   <= core_vsync;
-    vidout_de   <= active;
-    vidout_rgb  <= active ? { core_r, core_r, core_r[2:1],
-                              core_g, core_g, core_g[2:1],
-                              core_b, core_b, core_b, core_b } : 24'h0;
+    vidout_de   <= in_window;
+    vidout_rgb  <= (core_hblank | core_vblank) ? 24'h0 :
+                   { core_r, core_r, core_r[2:1],
+                     core_g, core_g, core_g[2:1],
+                     core_b, core_b, core_b, core_b };
 end
 
 
