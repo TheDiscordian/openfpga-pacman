@@ -40,12 +40,13 @@ This compiles the FPGA project, reverses the bitstream to the Pocket's `.rbf_r` 
 
 ## 🙏 Credits
 
-- **MikeJ / [fpgaarcade](https://www.fpgaarcade.com/kb/pacman/)** — the Pac-Man hardware VHDL.
+- **MikeJ / [fpgaarcade](https://www.fpgaarcade.com/kb/pacman/)** — the Pac-Man hardware VHDL (and the YM2149 model).
 - **Daniel Wallner** — the T80 Z80 CPU core.
-- **[MiSTer Arcade-Pacman](https://github.com/MiSTer-devel/Arcade-Pacman_MiSTer)** (Sorgelig / MiSTer-devel) — the integrated core this port derives from.
-- **[agg23/analogue-pocket-utils](https://github.com/agg23/analogue-pocket-utils)** — the APF loader / I2S helper IP.
+- **Arnim Laeuger** — the SN76489 PSG.
+- **Sorgelig / [MiSTer Arcade-Pacman](https://github.com/MiSTer-devel/Arcade-Pacman_MiSTer)** — the integrated core this port derives from.
+- **[agg23/analogue-pocket-utils](https://github.com/agg23/analogue-pocket-utils)** — the APF loader / I2S helper IP (MIT).
 
-All upstream HDL is 3-clause BSD. See `LICENSE`.
+This project's own work is **MIT** (`LICENSE`). Bundled upstream HDL retains its own licenses — see [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md), which discloses each component (and a license conflict in the bundled SN76489).
 
 ## ⚖️ Notice
 

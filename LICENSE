@@ -1,43 +1,36 @@
-BSD 3-Clause License
+MIT License
 
-Copyright (c) 2026, TheDiscordian and openFPGA Pac-Man contributors
-Copyright (c) 2006, MikeJ (fpgaarcade) — Pac-Man hardware HDL
-Copyright (c) 2002-2004, Daniel Wallner — T80 Z80 CPU core
+Copyright (c) 2026 TheDiscordian and openFPGA Pac-Man contributors
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-1. Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-2. Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
-
-3. Neither the name of the copyright holder nor the names of its contributors
-   may be used to endorse or promote products derived from this software
-   without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 --------------------------------------------------------------------------------
-Credits / provenance
 
-The Pac-Man hardware RTL is MikeJ's fpgaarcade VHDL model, integrated via the
-MiSTer Arcade-Pacman core (maintained by Alexey "Sorgelig" Melnikov and the
-MiSTer-devel project); the Z80 is Daniel Wallner's T80. All carry 3-clause BSD
-headers, retained intact in src/fpga/core/rtl/. The MiSTer /sys framework (GPL)
-is NOT included — this repository ships only the BSD core RTL plus an original
-Analogue Pocket APF wrapper.
+The MIT license above covers only the original work in this repository authored
+for the openFPGA Pac-Man port: the Analogue Pocket APF wrapper and integration
+(src/fpga/core/core_top.v and the APF glue), the build tooling (tools/,
+build.sh), the JSON configuration, and the project assets.
+
+Bundled third-party HDL and helper IP each retain their own licenses and are NOT
+relicensed by the above. See THIRD-PARTY-LICENSES.md for the full per-component
+disclosure — including a license conflict in the bundled SN76489 core that may
+be GPLv2.
 
 This core contains NO game ROMs. Pac-Man and Ms. Pac-Man are trademarks of
 Bandai Namco Entertainment Inc.; this is an independent, hardware-compatible
