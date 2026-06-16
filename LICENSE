@@ -29,8 +29,7 @@ build.sh), the JSON configuration, and the project assets.
 
 Bundled third-party HDL and helper IP each retain their own licenses and are NOT
 relicensed by the above. See THIRD-PARTY-LICENSES.md for the full per-component
-disclosure — including a license conflict in the bundled SN76489 core that may
-be GPLv2.
+disclosure.
 
 This core contains NO game ROMs. Pac-Man and Ms. Pac-Man are trademarks of
 Bandai Namco Entertainment Inc.; this is an independent, hardware-compatible

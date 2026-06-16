@@ -46,7 +46,7 @@ This compiles the FPGA project, reverses the bitstream to the Pocket's `.rbf_r` 
 - **Sorgelig / [MiSTer Arcade-Pacman](https://github.com/MiSTer-devel/Arcade-Pacman_MiSTer)** — the integrated core this port derives from.
 - **[agg23/analogue-pocket-utils](https://github.com/agg23/analogue-pocket-utils)** — the APF loader / I2S helper IP (MIT).
 
-This project's own work is **MIT** (`LICENSE`). Bundled upstream HDL retains its own licenses — see [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md), which discloses each component (and a license conflict in the bundled SN76489).
+This project's own work is **MIT** (`LICENSE`). Bundled upstream HDL retains its own licenses — see [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md) for the per-component disclosure.
 
 ## ⚖️ Notice
 

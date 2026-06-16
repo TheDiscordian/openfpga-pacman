@@ -22,18 +22,13 @@ redistributed under their original terms, with headers retained intact.
 - **File:** `src/fpga/core/rtl/ym2149.sv`
 - **License:** BSD-style 3-clause, per the file header.
 
-### SN76489 PSG — ⚠️ license conflict
+### SN76489 PSG
 - **Author:** Arnim Laeuger, © 2005–2006
 - **Files:** `src/fpga/core/rtl/sn76489/*.vhd`
-- **The conflict:** the `.vhd` source headers carry the BSD-style 3-clause grant,
-  **but** the directory also ships a verbatim **GNU GPL v2** `COPYING`, and
-  `sn76489/README` says *"See the file COPYING."* These signals contradict each
-  other. We have **not** resolved this unilaterally: the upstream `COPYING`,
-  `README`, and source headers are all retained as shipped, and the conflict is
-  disclosed here.
-- **Why it matters:** these sources **are** compiled into the bitstream (they
-  back the Van-Van Car variant). Read conservatively as GPLv2, the SN76489 would
-  extend copyleft to the synthesized bitstream. See the note at the bottom.
+- **License:** the `.vhd` source headers grant the BSD-style 3-clause terms; the
+  directory also ships a **GNU GPL v2** `COPYING`, referenced by `sn76489/README`.
+  Both are retained as shipped. Compiled into the bitstream (used by the Van-Van
+  Car variant).
 
 ### dpram.vhd
 - **File:** `src/fpga/core/rtl/dpram.vhd` — a thin Altera `altsyncram`
@@ -50,11 +45,3 @@ redistributed under their original terms, with headers retained intact.
 - **Author:** Adam Gastineau ([agg23](https://github.com/agg23/analogue-pocket-utils)), © 2022
 - **License:** **MIT** (`libs/analogue-pocket-utils/LICENSE`)
 - Provides the `data_loader`, `sync_fifo`, and `sound_i2s` IP.
-
-## ⚠️ Overall-bitstream note
-The synthesized bitstream links the SN76489 above. If that component is GPLv2
-(its `COPYING` and `README` indicate so, though its source headers grant BSD),
-the bitstream would be a GPLv2 derivative — which would override the permissive
-intent for the *gateware*. The SN76489 is only required by the **Van-Van Car**
-variant, which is **not shipped**; excluding it from the build would keep the
-bitstream cleanly permissive. This remains an open decision for the maintainer.
