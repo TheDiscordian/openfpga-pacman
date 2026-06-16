@@ -2,19 +2,30 @@
 
 A hardware-compatible FPGA core of the **Namco Pac-Man arcade board** for the [Analogue Pocket](https://www.analogue.co/pocket). One core covers **Pac-Man**, **Ms. Pac-Man**, and other same-board variants — they all run on identical 1980 Pac-Man hardware, just with different ROMs.
 
-> Status: **early development** (v0.1.0) — APF wrapper bring-up. Not yet playable on device. See `PLAN.md` for the roadmap.
+> Status: **playable on hardware** (v0.1.0) — Pac-Man, Ms. Pac-Man, and their speed-hack variants run on the Pocket, with sound.
 
 ## 🎮 What it is
 
 The core is a faithful gateware implementation of the Pac-Man hardware: a Z80 @ 3.072 MHz, the Namco tilemap + 8-sprite video, the 3-voice Namco WSG sound, and the palette PROMs. Pac-Man's vertical cabinet is handled by the Pocket's scaler (portrait rotation), not in logic.
 
+## 🎮 Games
+
+One core, four games — pick which to run from the Pocket's core menu:
+
+- **Pac-Man** and **Ms. Pac-Man**
+- **Pac-Man (speedup)** and **Ms. Pac-Man (speedup)** (under `_speedhacks`)
+
+They all run on the same 1980 Pac-Man board; the core applies the per-variant byte for whichever you select.
+
 ## 📦 ROMs — bring your own
 
-This core ships **no game ROMs**. You supply your own — and there's **no tool to run**:
+This core ships **no game ROMs**. Supply your own MAME sets (`pacman`, `mspacman`, `pacmanf`, `mspacmnf`) and assemble the per-game images:
 
-1. Obtain a Ms. Pac-Man ROM set you are legally entitled to (the MAME `mspacman` set).
-2. Unzip it and copy the loose files (`pacman.6e`, `pacman.6f`, `u5`, `u6`, `u7`, `5e`, `5f`, `82s126.1m`, `82s126.4a`, `82s126.3m`, `82s123.7f`) into `Assets/pacman/common/` on your Pocket SD card.
-3. Launch the core — it loads each file into place automatically.
+```bash
+python3 tools/build_roms.py --zipdir /path/to/your/mame/zips
+```
+
+This writes `pacman.rom`, `mspacman.rom`, `pacmanf.rom`, and `mspacmnf.rom`. Copy them into `Assets/pacman/TheDiscordian.PacMan/` on your Pocket SD card, alongside the game-select files, then launch the core and pick a game.
 
 ## 🔧 Building
 
