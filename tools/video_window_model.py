@@ -7,7 +7,8 @@ line up cleanly, or whether DE admits a pixel 1px beyond the active edge."""
 
 import os
 BORDER = 1
-DE_ACTIVE = os.environ.get("DE_ACTIVE", "0") == "1"   # 1 = the fix (DE == active)
+DE_ACTIVE = os.environ.get("DE_ACTIVE", "0") == "1"   # 1 = DE == active (no border)
+SYM       = os.environ.get("SYM", "0") == "1"          # 1 = corrected symmetric border
 
 def vsync_of(vcnt):          # vsync <= not vcnt_offset(8), v_offset=0
     return 0 if ((vcnt >> 8) & 1) else 1
@@ -35,7 +36,12 @@ def simulate(border=BORDER, frames=8):
         # wrapper combinational
         picture = (cs_hblank == 0 and cs_vblank == 0)
         if DE_ACTIVE:
-            in_window = picture        # the fix: DE is exactly the active region
+            in_window = picture        # DE is exactly the active region (no border)
+        elif SYM:
+            # symmetric BORDER ring: latches give h_end = first-blank (last_active+1)
+            # and v_start one line early, so right/top subtract 1 to stay symmetric.
+            in_window = ((whcnt + border >= h_start) and (whcnt + 1 <= h_end + border) and
+                         (wvcnt + border >= v_start + 1) and (wvcnt <= v_end + border))
         else:
             in_window = ((whcnt + border >= h_start) and (whcnt <= h_end + border) and
                          (wvcnt + border >= v_start) and (wvcnt <= v_end + border))
