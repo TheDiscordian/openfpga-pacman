@@ -1,7 +1,59 @@
 {
     "interact": {
         "magic": "APF_VER_1",
-        "variables": [],
+        "variables": [
+            {
+                "name": "Coinage", "id": 1, "type": "list",
+                "enabled": true, "persist": true,
+                "address": "0x50000004", "defaultval": 1,
+                "options": [
+                    { "value": 0, "name": "Free Play" },
+                    { "value": 1, "name": "1 Coin / 1 Credit" },
+                    { "value": 2, "name": "1 Coin / 2 Credits" },
+                    { "value": 3, "name": "2 Coins / 1 Credit" }
+                ]
+            },
+            {
+                "name": "Lives", "id": 2, "type": "list",
+                "enabled": true, "persist": true,
+                "address": "0x50000008", "defaultval": 2,
+                "options": [
+                    { "value": 0, "name": "1" },
+                    { "value": 1, "name": "2" },
+                    { "value": 2, "name": "3" },
+                    { "value": 3, "name": "5" }
+                ]
+            },
+            {
+                "name": "Bonus Life", "id": 3, "type": "list",
+                "enabled": true, "persist": true,
+                "address": "0x5000000C", "defaultval": 0,
+                "options": [
+                    { "value": 0, "name": "10000" },
+                    { "value": 1, "name": "15000" },
+                    { "value": 2, "name": "20000" },
+                    { "value": 3, "name": "None" }
+                ]
+            },
+            {
+                "name": "Difficulty", "id": 4, "type": "list",
+                "enabled": true, "persist": true,
+                "address": "0x50000010", "defaultval": 1,
+                "options": [
+                    { "value": 0, "name": "Hard" },
+                    { "value": 1, "name": "Normal" }
+                ]
+            },
+            {
+                "name": "Cabinet", "id": 5, "type": "list",
+                "enabled": true, "persist": true,
+                "address": "0x50000014", "defaultval": 1,
+                "options": [
+                    { "value": 0, "name": "Cocktail (2-player)" },
+                    { "value": 1, "name": "Upright" }
+                ]
+            }
+        ],
         "messages": []
     }
 }
