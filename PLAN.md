@@ -57,7 +57,6 @@ Ship zero ROM bytes. The repo carries HDL/bitstream + JSON only. `data.json` dec
 
 - **Scaler geometry (med):** DE window must match `video.json`; ~60.6 Hz + portrait must be configured right or video is garbled. Crib [ericlewis/openfpga-superbreakout](https://github.com/ericlewis/openfpga-superbreakout).
 - **WSG 96 kHz → 48 kHz resample (low-med):** pitch/mix may need iteration.
-- **GPL contamination (med if careless):** never pull a MiSTer `/sys` helper back in. `/_upstream/` and `/reference/` are gitignored so GPL framework files never enter the published tree.
 - **Genuine daughterboard decode is out of scope** for v1 (flattened ROMs only).
 - **Per-file license audit** owed before release (confirm every retained `rtl/` file is BSD).
 
