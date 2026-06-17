@@ -15,6 +15,9 @@
 *.orig
 *.sld
 
+# ROM data — never enters this tree (ship zero ROMs; users supply their own)
+*.rom
+
 # build artifacts — reproducible via build.sh; ship via GitHub releases, not git
 /output/*.rbf_r
 /dist/Cores/
