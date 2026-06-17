@@ -557,8 +557,11 @@ assign video_hs = vidout_hs;
     reg        in_window_d = 0;
 
     // Scaler slot select (video.json scaler_modes): 0 = ROT90 (vertical, the default
-    // for Pac-Man et al.), 1 = ROT0 (landscape, Ponpoko -- only horizontal game),
-    // 2 = ROT270 (vertical-but-180-from-Pac-Man: birdiy, vanvan, dremshpr per MAME).
+    // for Pac-Man et al.), 1 = ROT0 (landscape, Ponpoko -- the set's one horizontal
+    // game), 2 = ROT270 (vertical-but-180-from-Pac-Man: birdiy, vanvan, dremshpr).
+    // Slot 1 must declare clean exact-active dims (288x224, 4:3); feeding the scaler
+    // our padded 290x226/9:7 in ROT0 tore the landscape image apart (stretched, black
+    // gaps). The rotated slots tolerate the padding; ROT0 does not.
     // The APF "Set Scaler Slot" control word is emitted on video_rgb at the DE
     // falling edge (func code [2:0]=000, slot in the low bits of the [23:13]
     // parameter field); takes effect next frame.

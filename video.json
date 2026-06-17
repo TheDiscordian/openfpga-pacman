@@ -14,10 +14,10 @@
                 "mirror": 0
             },
             {
-                "width": 290,
-                "height": 226,
-                "aspect_w": 9,
-                "aspect_h": 7,
+                "width": 288,
+                "height": 224,
+                "aspect_w": 4,
+                "aspect_h": 3,
                 "rotation": 0,
                 "mirror": 0
             },
