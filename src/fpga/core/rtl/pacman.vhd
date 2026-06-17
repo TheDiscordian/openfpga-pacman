@@ -726,7 +726,7 @@ generic map (
 )
 port map (
 	clock_i    => clk,
-	clock_en_i => ena_4,
+	clock_en_i => ena_1m79,
 	res_n_i    => not RESET,
 	ce_n_i     => sn1_ce,
 	we_n_i     => sn1_ce,
@@ -741,7 +741,7 @@ generic map (
 )
 port map (
 	clock_i    => clk,
-	clock_en_i => ena_4,
+	clock_en_i => ena_1m79,
 	res_n_i    => not RESET,
 	ce_n_i     => sn2_ce,
 	we_n_i     => sn2_ce,
