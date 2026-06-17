@@ -82,7 +82,7 @@ Fixes are in PR #4 (`fix/variant-correctness`).
 | Woodpecker | 8 | 90 | — | bonus 5k/10k/15k, cab b6, service b7 | WSG; mrtnt video path |
 | Eeekk! | 9 | 90 | IN0 b7 (P2) / IN1 b6 (P1) | own DSW1 (lives/diff/demo) | WSG; EPOS counter-PAL decrypt (init $09) |
 | Ali Baba | 10 | 90 | **IN0 b6** (hammer) | base-like (0xC9); mystery ports 0x50c0/c1 | WSG; **giant = random "?" effect (table of 16 perms of {1,2,3,4}) — open on-device** |
-| Ponpoko | 11 | **0** (landscape) | IN0 b4 | **active-HIGH** inputs; coin DSW2; lives/bonus reordered | WSG; **gfx confirmed correct on-device (photos); displays at ROT90 like the rest, played by rotating the Pocket — the added ROT0 slot was the regression, now reverted** |
+| Ponpoko | 11 | **0** (landscape) | IN0 b4 | **active-HIGH** inputs; coin DSW2; lives/bonus reordered | WSG; **fixed + plays upright on-device: ROT0 slot needs clean exact-active 288x224/4:3 (padded 290x226/9:7 tore it apart); gfx confirmed correct via photos** |
 | Van-Van Car | 12 | **270** | IN0 b4 | coin top nibble; DSW2=0x00 (else no collision) | **2×SN76496 @ ~1.79 MHz** (was ena_4 4.096 → fixed to ena_1m79); NMI not IRQ |
 | Dream Shopper | 14 | **270** | IN0 b4 | coin top nibble; **DSW2=0x00 (else invuln→infinite-loop freeze)** | AY-3-8910 (ym2149) ports 06/07; NMI |
 | Jump Shot | 16 | 90 | IN1 b5/b6 (shoot; coin-start) | DSW1 fixed 0xDD (time/skin/freeplay) | WSG |
@@ -99,12 +99,12 @@ and iverilog-simulated (23/23 self-checks pass).
   (IN0 b6, Z80 disasm @ 0xa0f8), ROM bank layout (6l→0x8000, 6m→0xa000), the "?" effect-table
   (@ 0x8040). If the defect is real, the giant-effect *application* is the only remaining suspect;
   needs on-device data or a timed sim to confirm.
-- **Ponpoko — RESOLVED.** The "stretched / random black lines / comes apart" symptom was the
-  added **ROT0 scaler slot itself** tearing the wide image when fed straight to the portrait panel,
-  **not** the ROM and not the gfx. Confirmed on-device with photos: forcing slot 1 back to ROT90
-  shows clean, correct tiles/text/sprites (just landscape, played by rotating the Pocket). Ponpoko
-  was never a rotation bug — at ROT90 it merely *looks* sideways when held upright, which read as
-  "rotated 90" in the first report; the only real defect then was inputs (fixed, active-high). Fix:
-  slot 1 reverted to ROT90 (a duplicate of slot 0). Collapse slot 1 → slot 0 on the next rebuild.
+- **Ponpoko — RESOLVED (plays upright on-device).** Two separate things were conflated:
+  (1) gfx — never broken; confirmed correct via photos (a ROT90 probe showed clean tiles/text/
+  sprites), so no descramble was needed. (2) the real bug — our ROT0 slot tore the landscape image
+  apart (stretched, random black gaps) because it declared our **padded 290x226 / 9:7**. The
+  rotated slots tolerate that padding; ROT0 does not. Fix: slot 1 now declares **clean exact-active
+  288x224 / 4:3** — the way working landscape Pocket cores (e.g. Neo Geo, 304/320x224 ROT0) feed
+  the scaler. `video.json`-only, no bitstream rebuild (core already routes ponp → slot 1).
 - **Round-3 bitstream** — built, **not yet deployed** (SD was unmounted).
 - All gameplay confirmation of rounds 1–3 — hardware-pending.
