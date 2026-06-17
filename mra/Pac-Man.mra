@@ -12,7 +12,7 @@
 	     to bridge 0x00000000 (matches tools/build_roms.py). The per-game mod byte
 	     (0 = Pac-Man) is delivered by the instance JSON's memory_write to
 	     0x50000000, NOT this ROM. -->
-	<rom index="0" zip="pacman.zip">
+	<rom index="0" zip="pacman.zip|puckman.zip">
 		<part crc="c1e6ab10" name="pacman.6e"></part>
 		<part crc="1a6fb2d4" name="pacman.6f"></part>
 		<part crc="bcdd1beb" name="pacman.6h"></part>
