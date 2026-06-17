@@ -92,10 +92,13 @@ the APF "Set Scaler Slot" control word, selected by mod. DIP mapping is bit-exac
 and iverilog-simulated (23/23 self-checks pass).
 
 ### Variant items still open (on-device or design-decision)
-- **Ali Baba giant** — confirmed real bug (reliable on real hw, absent on ours); cause not yet
-  isolated. Verified correct: button bit (IN0 b6, from Z80 disassembly @ 0xa0f8), ROM bank layout
-  (6l→0x8000, 6m→0xa000), the "?" effect-selection (table @ 0x8040). The giant effect *application*
-  is the remaining suspect; needs more on-device data or a timed sim.
+- **Ali Baba giant** — **user-reported, not independently verified.** Basis is the user's
+  observation only: giant never triggers on-device, and a reference video shows grabbing "?"
+  triggers it reliably → a real defect by that evidence. I have **not** verified or isolated it
+  (can't run the hardware). What I *did* verify came back **correct, no defect found**: button bit
+  (IN0 b6, Z80 disasm @ 0xa0f8), ROM bank layout (6l→0x8000, 6m→0xa000), the "?" effect-table
+  (@ 0x8040). If the defect is real, the giant-effect *application* is the only remaining suspect;
+  needs on-device data or a timed sim to confirm.
 - **Ponpoko** — upright now (rot0 slot) but landscape scaling imperfect; clean fix = separate core.
 - **Round-3 bitstream** — built, **not yet deployed** (SD was unmounted).
 - All gameplay confirmation of rounds 1–3 — hardware-pending.
