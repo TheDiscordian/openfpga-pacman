@@ -556,12 +556,14 @@ assign video_hs = vidout_hs;
     reg  [9:0] h_start = 0, h_end = 10'h3ff, v_start = 0, v_end = 10'h3ff;
     reg        in_window_d = 0;
 
-    // Scaler slot select (video.json scaler_modes): 0 = ROT90 (vertical, the
-    // default for Pac-Man et al.), 1 = ROT0 (landscape, for Ponpoko -- the only
-    // horizontal game on this hardware). The APF "Set Scaler Slot" control word is
-    // emitted on video_rgb at the DE falling edge (func code [2:0]=000, slot in the
-    // low bits of the [23:13] parameter field); takes effect next frame.
-    wire [2:0] scaler_slot = mod_ponp ? 3'd1 : 3'd0;
+    // Scaler slot select (video.json scaler_modes): 0 = ROT90 (vertical, the default
+    // for Pac-Man et al.), 1 = ROT0 (landscape, Ponpoko -- only horizontal game),
+    // 2 = ROT270 (vertical-but-180-from-Pac-Man: birdiy, vanvan, dremshpr per MAME).
+    // The APF "Set Scaler Slot" control word is emitted on video_rgb at the DE
+    // falling edge (func code [2:0]=000, slot in the low bits of the [23:13]
+    // parameter field); takes effect next frame.
+    wire [2:0] scaler_slot = mod_ponp                          ? 3'd1 :
+                             (mod_bird | mod_van | mod_dshop)  ? 3'd2 : 3'd0;
 
     wire in_window = (hcnt + BORDER >= h_start) && (hcnt + 10'd1 <= h_end + BORDER) &&
                      (vcnt + BORDER >= v_start + 10'd1) && (vcnt <= v_end + BORDER);
