@@ -554,6 +554,16 @@ assign video_hs = vidout_hs;
     reg  [9:0] hcnt = 0, vcnt = 0;
     reg        hs_d = 0, vs_d = 0, hb_d = 0, vb_d = 0;
     reg  [9:0] h_start = 0, h_end = 10'h3ff, v_start = 0, v_end = 10'h3ff;
+    reg        in_window_d = 0;
+
+    // Scaler slot select (video.json scaler_modes): 0 = ROT90 (vertical, the default
+    // for Pac-Man et al.), 1 = ROT0 (landscape, Ponpoko -- only horizontal game),
+    // 2 = ROT270 (vertical-but-180-from-Pac-Man: birdiy, vanvan, dremshpr per MAME).
+    // The APF "Set Scaler Slot" control word is emitted on video_rgb at the DE
+    // falling edge (func code [2:0]=000, slot in the low bits of the [23:13]
+    // parameter field); takes effect next frame.
+    wire [2:0] scaler_slot = mod_ponp                          ? 3'd1 :
+                             (mod_bird | mod_van | mod_dshop)  ? 3'd2 : 3'd0;
 
     wire in_window = (hcnt + BORDER >= h_start) && (hcnt + 10'd1 <= h_end + BORDER) &&
                      (vcnt + BORDER >= v_start + 10'd1) && (vcnt <= v_end + BORDER);
@@ -596,13 +606,20 @@ always @(posedge clk_pix) begin
     if ( core_vblank & ~vb_d) v_end   <= vcnt;
 
     // DE across the grown window; RGB black wherever the core is blanking, so the
-    // border ring is always black.
+    // border ring is always black. On the first blanking pixel after DE falls, emit
+    // the APF "Set Scaler Slot" control word to pick the rotation slot.
+    in_window_d <= in_window;
     vidout_skip <= 1'b0;
     vidout_hs   <= core_hsync;
     vidout_vs   <= core_vsync;
     vidout_de   <= in_window;
-    vidout_rgb  <= (core_hblank | core_vblank) ? 24'h0 :
-                   { dac_rg(core_r), dac_rg(core_g), dac_b(core_b) };
+    if (in_window)
+        vidout_rgb <= (core_hblank | core_vblank) ? 24'h0 :
+                      { dac_rg(core_r), dac_rg(core_g), dac_b(core_b) };
+    else if (in_window_d)            // DE falling edge -> scaler slot select
+        vidout_rgb <= { 8'd0, scaler_slot, 13'd0 };  // [2:0]=000 Set Scaler Slot
+    else
+        vidout_rgb <= 24'h0;         // safe blanking default = slot 0
 end
 
 
@@ -767,10 +784,11 @@ mf_pllbase mp1 (
     assign datatable_data = dt_data;
     assign datatable_wren = dt_wren;
 
-    // Controllers -> Pac-Man IN0/IN1 (active-low). cont1 = player 1; cont2 MIRRORS
-    // P1's controls (so a second player uses their own pad), except cont2's start
-    // maps to 2P start. Upright only (no cocktail screen-flip). IN1: bit7=upright,
-    // bit6=2P start, bit5=1P start.
+    // Controllers -> Pac-Man IN0/IN1. cont1 = player 1; cont2 = player 2.
+    // Base Pac-Man is active-low (board doc: controls pull high, switch to ground);
+    // Ponpoko's board is the exception (active-high) -- handled in the per-mod mux.
+    // Variant action buttons sit on different IN bits per game; the actual pac_in0/
+    // pac_in1 are built below, after the mod decode, so they can branch on mod.
     wire m_up    = cont1_key[0]  | cont2_key[0];
     wire m_down  = cont1_key[1]  | cont2_key[1];
     wire m_left  = cont1_key[2]  | cont2_key[2];
@@ -778,8 +796,9 @@ mf_pllbase mp1 (
     wire m_coin  = cont1_key[14] | cont2_key[14];     // either pad inserts a coin
     wire m_start   = cont1_key[15];                   // 1P start
     wire m_start_2 = cont2_key[15];                   // 2P start
-    wire [7:0] pac_in0 = { 1'b1, 1'b1, ~m_coin,    1'b1, ~m_down, ~m_right, ~m_left, ~m_up };
-    wire [7:0] pac_in1 = { 1'b1, ~m_start_2, ~m_start, 1'b1, 1'b1,   1'b1,     1'b1,    1'b1 };
+    // Single-button variants: any face/shoulder button (A/B/X/Y/L/R) is the action.
+    wire m_btn   = |cont1_key[9:4];                   // P1 action
+    wire m_btn_2 = |cont2_key[9:4];                   // P2 action
 
     // Per-game variant: each game's instance JSON pushes its mod value to bridge
     // address VARIANT_ADDR via a memory_write (the standard Pocket mechanism, so
@@ -808,7 +827,6 @@ mf_pllbase mp1 (
         32'h5000000C: dip_bonus <= bridge_wr_data[1:0];
         32'h50000010: dip_diff  <= bridge_wr_data[0];
     endcase
-    wire [7:0] pac_dipsw1 = { 1'b1, dip_diff, dip_bonus, dip_life, dip_coin }; // names=normal
 
     wire mod_plus  = (mod_reg == 8'd1);
     wire mod_club  = (mod_reg == 8'd2);
@@ -824,6 +842,82 @@ mf_pllbase mp1 (
     wire mod_glob  = (mod_reg == 8'd15);
     wire mod_jmpst = (mod_reg == 8'd16);
 
+    // Per-mod IN0/IN1. Default = base Pac-Man (active-low, no action button).
+    // Variant action-button bits and Ponpoko's active-high polarity come from
+    // each game's MAME-reverse-engineered board map (no variant schematics exist):
+    //   alibaba  IN0 b6 = hammer        van/dshop IN0 b4 = action
+    //   eeekk    IN0 b7 = P2, IN1 b6 = P1   birdiy IN1 b4 = P1, b7 = P2
+    //   jumpshot IN1 b5 = P1, b6 = P2 shoot (no start; coin-start)
+    //   ponpoko  whole port active-high; IN0 b4 = button; coins stay active-low
+    //   club     P1 from cont1, P2 from cont2 (its input mux reads each separately)
+    reg [7:0] pac_in0, pac_in1;
+    always @(*) begin
+        pac_in0 = { 1'b1, 1'b1, ~m_coin, 1'b1, ~m_down, ~m_right, ~m_left, ~m_up };
+        pac_in1 = { 1'b1, ~m_start_2, ~m_start, 1'b1, 1'b1, 1'b1, 1'b1, 1'b1 };
+        case (1'b1)
+            mod_alib:  pac_in0[6] = ~m_btn;
+            mod_van:   pac_in0[4] = ~m_btn;
+            mod_dshop: pac_in0[4] = ~m_btn;
+            mod_eeek:  begin pac_in0[7] = ~m_btn_2; pac_in1[6] = ~m_btn; end
+            mod_bird:  begin pac_in1[4] = ~m_btn;   pac_in1[7] = ~m_btn_2; end
+            mod_jmpst: begin pac_in1[5] = ~m_btn;   pac_in1[6] = ~m_btn_2; end
+            mod_ponp:  begin
+                pac_in0 = { 1'b1, 1'b1, ~m_coin, m_btn, m_down, m_right, m_left, m_up };
+                pac_in1 = { 1'b0, m_start_2, m_start, m_btn_2, 1'b0, 1'b0, 1'b0, 1'b0 };
+            end
+            mod_club:  begin
+                pac_in0[3:0] = ~{ cont1_key[1], cont1_key[3], cont1_key[2], cont1_key[0] };
+                pac_in1[3:0] = ~{ cont2_key[1], cont2_key[3], cont2_key[2], cont2_key[0] };
+            end
+            default: ;
+        endcase
+    end
+
+    // Per-mod DIPs. The OSD menu (interact.json) stays Pac-Man-labeled, but the core
+    // places each generic field (coin/life/bonus/diff) on the loaded game's real DSW
+    // bits so the toggles DO the right thing. Board-RE from MAME (no variant
+    // schematics). Cabinet/service bits are pinned to upright/inactive so a toggle
+    // can't flip a game into cocktail/test (dead controls); the dangerous DSW2s
+    // (vanvan = no sprite collision, dremshpr = invuln infinite-loop) are forced 0.
+    // Value translations for games whose fields are reordered / on different bits:
+    wire [1:0] club_coin  = (dip_coin == 2'd0) ? 2'd1 : dip_coin;          // Free invalid -> 1C1C
+    wire [1:0] mrtnt_coin = (dip_coin == 2'd1) ? 2'd3 :
+                            (dip_coin == 2'd3) ? 2'd1 : dip_coin;          // 1C1C<->2C1C swapped
+    wire [1:0] ponp_bonus = dip_bonus + 2'd1;                              // 10k/30k/50k/None
+    wire [3:0] ponp_coin  = (dip_coin == 2'd0) ? 4'h0 : (dip_coin == 2'd1) ? 4'h1 :
+                            (dip_coin == 2'd2) ? 4'h3 : 4'h2;              // ponpoko DSW2[3:0]
+    wire [1:0] van_coin   = (dip_coin == 2'd0) ? 2'b00 : (dip_coin == 2'd1) ? 2'b11 :
+                            (dip_coin == 2'd2) ? 2'b10 : 2'b01;            // 2C1C/1C1C/1C2C/1C3C
+    wire [1:0] van_bonus  = (dip_bonus == 2'd0) ? 2'b10 : (dip_bonus == 2'd1) ? 2'b01 :
+                            (dip_bonus == 2'd2) ? 2'b00 : 2'b11;
+
+    reg [7:0] pac_dipsw1, pac_dipsw2;
+    always @(*) begin
+        pac_dipsw2 = 8'hFF;                                                // harmless for active-low games
+        pac_dipsw1 = { 1'b1, dip_diff, dip_bonus, dip_life, dip_coin };    // base / pacplus / alibaba
+        case (1'b1)
+            mod_club:  pac_dipsw1 = { 2'b00, dip_bonus, 1'b1, (dip_life == 2'd3), club_coin };
+            mod_bird:  pac_dipsw1 = { 1'b1, 1'b1, 1'b1, 1'b0, dip_life, dip_coin };
+            mod_mrtnt: pac_dipsw1 = { 1'b1, 1'b1, ~dip_bonus, ~dip_life, mrtnt_coin };
+            mod_woodp: pac_dipsw1 = { 1'b1, 1'b1, dip_bonus, dip_life, dip_coin };
+            mod_eeek:  pac_dipsw1 = { 2'b11, 1'b0, dip_diff, 2'b00, ~dip_life };
+            mod_ponp:  begin
+                pac_dipsw1 = { 1'b1, 1'b1, dip_life, 2'b00, ponp_bonus };
+                pac_dipsw2 = { 1'b1, 1'b0, 2'b11, ponp_coin };
+            end
+            mod_van:   begin
+                pac_dipsw1 = { van_coin, ~dip_life, van_bonus, 1'b1, 1'b0 };
+                pac_dipsw2 = 8'h00;
+            end
+            mod_dshop: begin
+                pac_dipsw1 = { van_coin, ~dip_life, van_bonus, 1'b1, 1'b1 };
+                pac_dipsw2 = 8'h00;
+            end
+            mod_jmpst: pac_dipsw1 = 8'hDD;                                 // no coin/life/bonus/diff dips
+            default: ;
+        endcase
+    end
+
     wire [9:0] pac_audio;
     pacman pacman_core (
         .O_VIDEO_R (core_r), .O_VIDEO_G (core_g), .O_VIDEO_B (core_b),
@@ -831,7 +925,7 @@ mf_pllbase mp1 (
         .O_HBLANK (core_hblank), .O_VBLANK (core_vblank),
         .O_AUDIO (pac_audio),
         .in0 (pac_in0), .in1 (pac_in1),
-        .dipsw1 (pac_dipsw1), .dipsw2 (8'hFF),
+        .dipsw1 (pac_dipsw1), .dipsw2 (pac_dipsw2),
         .mod_plus (mod_plus), .mod_jmpst (mod_jmpst), .mod_bird (mod_bird), .mod_mrtnt (mod_mrtnt),
         .mod_ms (mod_ms), .mod_woodp (mod_woodp), .mod_eeek (mod_eeek), .mod_glob (mod_glob),
         .mod_alib (mod_alib), .mod_ponp (mod_ponp | mod_van | mod_dshop),

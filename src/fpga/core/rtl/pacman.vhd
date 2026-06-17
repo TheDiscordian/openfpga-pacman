@@ -523,8 +523,10 @@ begin
 	end if;
 end process;
 
-c_flip <= flip_screen xor control_reg(1) when mod_alib = '1' else flip_screen xor control_reg(5) when mod_bird = '1' else control_reg(3) xor flip_screen;
-c_sound<= control_reg(0) when mod_alib = '1' else control_reg(3) when mod_bird = '1' else control_reg(1);
+-- birdiy reassigns only the mainlatch: Q1=irq (was sound), Q0=nop; flip stays Q3,
+-- and sound has no latch -> always on (MAME pacman.cpp birdiy machine_config).
+c_flip <= flip_screen xor control_reg(1) when mod_alib = '1' else flip_screen xor control_reg(3) when mod_bird = '1' else control_reg(3) xor flip_screen;
+c_sound<= control_reg(0) when mod_alib = '1' else '1' when mod_bird = '1' else control_reg(1);
 c_int  <= control_reg(2) when mod_alib = '1' else control_reg(1) when mod_bird = '1' else control_reg(0);
 
 p_mcnt : process
@@ -657,6 +659,7 @@ port map (
 	--
 	MRTNT     => mod_mrtnt or mod_woodp,
 	PONP      => mod_ponp and not mod_van,
+	mod_bird  => mod_bird,
 	ENA_6     => ena_6,
 	CLK       => clk,
 	flip_screen => flip_screen
@@ -726,7 +729,7 @@ generic map (
 )
 port map (
 	clock_i    => clk,
-	clock_en_i => ena_4,
+	clock_en_i => ena_1m79,
 	res_n_i    => not RESET,
 	ce_n_i     => sn1_ce,
 	we_n_i     => sn1_ce,
@@ -741,7 +744,7 @@ generic map (
 )
 port map (
 	clock_i    => clk,
-	clock_en_i => ena_4,
+	clock_en_i => ena_1m79,
 	res_n_i    => not RESET,
 	ce_n_i     => sn2_ce,
 	we_n_i     => sn2_ce,

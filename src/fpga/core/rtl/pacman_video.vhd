@@ -71,6 +71,7 @@ port (
 	O_BLUE            : out   std_logic_vector(1 downto 0);
 	MRTNT             : in    std_logic := '0';  -- 1 to descramble Mr TNT ROMs, 0 otherwise
 	PONP              : in    std_logic := '0';
+	mod_bird          : in    std_logic := '0';  -- birdiy mirrors sprites in X (MAME m_inv_spr)
 	ENA_6             : in    std_logic;
 	CLK               : in    std_logic;
 
@@ -94,6 +95,7 @@ architecture RTL of PACMAN_VIDEO is
 	signal xflip              : std_logic;
 	signal yflip              : std_logic;
 	signal obj_on             : std_logic;
+	signal spr_flip           : std_logic;  -- sprite-path flip polarity (flip_screen xor mod_bird)
 
 	signal cax                : std_logic_vector(1 downto 0);
 	signal ca                 : std_logic_vector(12 downto 0);
@@ -141,10 +143,13 @@ begin
 	-- ghosts) by 1px on the even (sy) byte -- MAME's m_xoffsethack (sy+1), which is
 	-- (not B)-1 in our complemented load domain. odd (sx) byte and sprites 3-7 stay
 	-- the plain complement, so their (already board-correct) placement is unchanged.
+	-- birdiy mirrors sprites in X/Y vs normal (MAME m_inv_spr): invert the flip
+	-- polarity the sprite path sees, leaving the background tilemap untouched.
+	spr_flip <= flip_screen xor mod_bird;
 	xy <= (not sprite_xy_ram_temp) - 1
-	          when flip_screen = '0' and I_AB(0) = '0'
+	          when spr_flip = '0' and I_AB(0) = '0'
 	               and I_AB(3) = '0' and not (I_AB(2) = '1' and I_AB(1) = '1')
-	      else not sprite_xy_ram_temp when flip_screen = '0'
+	      else not sprite_xy_ram_temp when spr_flip = '0'
 	      else sprite_xy_ram_temp - 19 when I_AB(0) = '1'
 	      else sprite_xy_ram_temp - 15 + to_integer(unsigned'("" & (not (I_AB(1) and I_AB(2)) xor I_AB(3)) & "0"));
 
@@ -196,14 +201,14 @@ begin
 		end if;
 	end process;
 
-	p_flip_comb : process(char_hblank_reg, I_FLIP, db_reg, flip_screen)
+	p_flip_comb : process(char_hblank_reg, I_FLIP, db_reg, spr_flip)
 	begin
 		if (char_hblank_reg = '0') then
 			xflip     <= I_FLIP;
 			yflip     <= I_FLIP;
 		else
-			xflip     <= db_reg(1) xor flip_screen;
-			yflip     <= db_reg(0) xor flip_screen;
+			xflip     <= db_reg(1) xor spr_flip;
+			yflip     <= db_reg(0) xor spr_flip;
 		end if;
 	end process;
 
