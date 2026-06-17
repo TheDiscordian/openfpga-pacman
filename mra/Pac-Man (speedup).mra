@@ -11,7 +11,7 @@
 	<!-- openFPGA: index 0 assembles the flat .rom (matches tools/build_roms.py).
 	     mod byte 0 (Pac-Man) is set by the instance JSON, not this ROM.
 	     pacfast.6f is the speedup program ROM; the rest fall back to pacman.zip. -->
-	<rom index="0" zip="pacmanf.zip|pacman.zip">
+	<rom index="0" zip="pacmanf.zip|pacman.zip|puckman.zip">
 		<part crc="c1e6ab10" name="pacman.6e"></part>
 		<part crc="720dc3ee" name="pacfast.6f"></part>
 		<part crc="bcdd1beb" name="pacman.6h"></part>
