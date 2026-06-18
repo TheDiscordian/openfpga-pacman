@@ -846,15 +846,27 @@ mf_pllbase mp1 (
     wire ss_start_rise = (ss_start_sr[2:1] == 2'b01);
     wire ss_load_rise  = (ss_load_sr[2:1]  == 2'b01);
 
+    // ss_cpu_bndry is already in clk_sys (the T80 runs on clk_sys via pacman.vhd
+    // CLK=>clk), so the FSM gates on it DIRECTLY -- no synchronizer. A 2FF sync here
+    // would only add lag, letting the CPU run past the boundary before the park
+    // engages. Register it once just to break the long pacman->T80 comb path into
+    // the FSM (1-cycle align with the FSM's own registered state); the park
+    // re-asserts M1/T1 every CEN edge anyway, so a 1-cycle align is exact.
+    reg ss_bndry_q = 1'b0;
+    always @(posedge clk_sys) ss_bndry_q <= ss_cpu_bndry;
+
     // 3 cycles per byte: present address/index, wait one cycle for the registered
     // read, then capture (save) or write back (load). One unified counter walks the
     // 4128-byte blob: bytes 0..4095 = work RAM (via the hiscore tap), 4096..4127 =
     // CPU registers (via the ss_cpu_* bus into the T80, ss_idx = cnt[4:0]).
-    localparam SS_IDLE=3'd0, SS_SV0=3'd1, SS_SV1=3'd2, SS_SV2=3'd3,
-               SS_LD0=3'd4, SS_LD1=3'd5, SS_LD2=3'd6, SS_FIN=3'd7;
-    reg  [2:0]  ss_st = SS_IDLE;
+    localparam SS_IDLE=4'd0, SS_SV0=4'd1, SS_SV1=4'd2, SS_SV2=4'd3,
+               SS_LD0=4'd4, SS_LD1=4'd5, SS_LD2=4'd6, SS_FIN=4'd7,
+               SS_ARM=4'd8;
+    reg  [3:0]  ss_st = SS_IDLE;
     reg  [12:0] ss_cnt;
-    reg         ss_busy_cs = 1'b0, ss_ok_cs = 1'b0;
+    reg         ss_busy_cs = 1'b0;
+    reg         ss_save_ok_cs = 1'b0, ss_load_ok_cs = 1'b0;
+    reg         ss_op_load = 1'b0;                  // current op: 0=save, 1=load
     reg         ss_pause_o, ss_rd_o, ss_wr_o, ss_wen_o;
     reg  [11:0] ss_addr_o;
     reg  [7:0]  ss_din_o;
@@ -862,18 +874,40 @@ mf_pllbase mp1 (
     reg  [7:0]  ss_cpu_din_r;
     reg         ss_cpu_wr_r;
     wire        ss_active = (ss_st != SS_IDLE);
+    wire        ss_walking = (ss_st != SS_IDLE) && (ss_st != SS_ARM);
     wire        ss_cpu_ph = (ss_cnt >= SS_RAM);     // CPU phase of the walk
     always @(posedge clk_sys) begin
         ss_rd_o <= 1'b0; ss_wr_o <= 1'b0; ss_wen_o <= 1'b0; ssa_we <= 1'b0; ss_cpu_wr_r <= 1'b0;
         case (ss_st)
         SS_IDLE: begin
             ss_pause_o <= 1'b0;
+            // Arm the op and clear THIS op's ok, then wait in SS_ARM for the CPU to
+            // reach an M1/T1 boundary before walking any byte. Crucially DO NOT
+            // assert ss_pause_o during the arm wait: the CPU must keep running so it
+            // finishes its current instruction (incl. any in-flight store write) and
+            // reaches a real fetch boundary. Clearing the per-op ok here (not on the
+            // next op's rise) guarantees the host samples ack=0 for a fresh request.
             if (ss_start_rise) begin
-                ss_st <= SS_SV0; ss_cnt <= 13'd0;
-                ss_busy_cs <= 1'b1; ss_ok_cs <= 1'b0; ss_pause_o <= 1'b1;
+                ss_st <= SS_ARM; ss_cnt <= 13'd0; ss_op_load <= 1'b0;
+                ss_busy_cs <= 1'b1; ss_save_ok_cs <= 1'b0;
             end else if (ss_load_rise) begin
-                ss_st <= SS_LD0; ss_cnt <= 13'd0;
-                ss_busy_cs <= 1'b1; ss_ok_cs <= 1'b0; ss_pause_o <= 1'b1;
+                ss_st <= SS_ARM; ss_cnt <= 13'd0; ss_op_load <= 1'b1;
+                ss_busy_cs <= 1'b1; ss_load_ok_cs <= 1'b0;
+            end
+        end
+        // Wait for the CPU to reach an M1/T1 fetch boundary NATURALLY. ss_cpu_load
+        // is NOT asserted here (ss_walking false in SS_ARM) and ss_pause_o is LOW, so
+        // the T80 runs free to the end of its current instruction -- any in-flight
+        // memory cycle (e.g. a store's write) COMPLETES instead of being truncated by
+        // a forced park. The moment ss_cpu_bndry='1' we enter the walk, which raises
+        // ss_cpu_load (park: forces+holds MCycle/TState=M1/T1, T80.vhd:1177) AND
+        // ss_pause_o. The park pins the CPU at exactly the boundary it naturally
+        // reached -- so the captured PC/regs are coherent with the captured RAM
+        // (save), and the restore resumes from the parked boundary (load).
+        SS_ARM: begin
+            if (ss_bndry_q) begin
+                ss_pause_o <= 1'b1;
+                ss_st <= ss_op_load ? SS_LD0 : SS_SV0;
             end
         end
         // SAVE: present source addr/index -> wait -> capture into buffer[cnt]
@@ -903,19 +937,31 @@ mf_pllbase mp1 (
             else begin ss_cnt <= ss_cnt + 13'd1; ss_st <= SS_LD0; end
         end
         SS_FIN: begin
-            ss_busy_cs <= 1'b0; ss_ok_cs <= 1'b1; ss_pause_o <= 1'b0;
+            ss_busy_cs <= 1'b0; ss_pause_o <= 1'b0;
+            if (ss_op_load) ss_load_ok_cs <= 1'b1;
+            else            ss_save_ok_cs <= 1'b1;
             ss_st <= SS_IDLE;
         end
         endcase
     end
 
-    // CPU savestate bus into pacman/T80. ss_cpu_load is held across the CPU phase
-    // (save or load) so the T80 parks at the M1/T1 fetch boundary -- clean register
-    // reads on save, and on the load it resumes by fetching the restored PC.
+    // CPU savestate bus into pacman/T80. ss_cpu_load is held for the entire WALK
+    // (ss_walking = active && not SS_ARM), parking the T80 at M1/T1 continuously
+    // once SS_ARM has confirmed the CPU reached that boundary NATURALLY. It is NOT
+    // asserted during SS_ARM, so the park does not truncate an in-flight bus cycle:
+    // the CPU finishes its current instruction (incl. any store write), reaches the
+    // boundary; the walk then asserts ss_cpu_load, and the T80 park (T80.vhd:1177,
+    // re-forced every CEN edge) pins it at that exact boundary while RAM/regs are
+    // read. No pacman.vhd pause/CLKEN change is needed -- the park is the freeze.
+    // The captured PC/regs are therefore coherent with the captured RAM (save), and
+    // the restore resumes from the parked boundary (load). Previously this was gated
+    // on ss_cpu_ph (only the last 32 bytes), leaving the CPU WAIT-stalled
+    // mid-instruction for the 12288-cycle RAM phase -> incoherent snapshot -> bad-PC
+    // restore -> watchdog reset on device.
     assign ss_cpu_idx  = ss_cpu_idx_r;
     assign ss_cpu_din  = ss_cpu_din_r;
     assign ss_cpu_wr   = ss_cpu_wr_r;
-    assign ss_cpu_load = ss_active & ss_cpu_ph;
+    assign ss_cpu_load = ss_walking;
 
     // tap mux: savestate FSM owns the tap while active, else hiscore does.
     assign hs_addr   = ss_active ? ss_addr_o : hsi_addr;
@@ -925,20 +971,25 @@ mf_pllbase mp1 (
     assign hs_wr_acc = ss_active ? ss_wr_o   : hsi_wr_acc;
     assign hs_pause  = hsi_pause | ss_pause_o;
 
-    // status back to the clk_74a bridge (slow levels; one op at a time, so the
-    // same busy/ok feed both the save and load query paths).
-    reg [2:0] ss_busy_74 = 3'd0, ss_ok_74 = 3'd0;
+    // status back to the clk_74a bridge (slow levels). busy is shared (one op at a
+    // time) but ok is PER-OP: a SAVE only ever lights savestate_start_ok and a LOAD
+    // only savestate_load_ok. Sharing one ok across both let a finished SAVE leave
+    // savestate_load_ok asserted, so the host saw the next LOAD as already-acked and
+    // short-circuited it ("load does nothing"). Each ok is cleared at its own op's
+    // start (SS_IDLE rise), so a fresh request reads ack=0 -> busy=1 -> ok=1.
+    reg [2:0] ss_busy_74 = 3'd0, ss_save_ok_74 = 3'd0, ss_load_ok_74 = 3'd0;
     always @(posedge clk_74a) begin
-        ss_busy_74 <= {ss_busy_74[1:0], ss_busy_cs};
-        ss_ok_74   <= {ss_ok_74[1:0],   ss_ok_cs};
+        ss_busy_74    <= {ss_busy_74[1:0],    ss_busy_cs};
+        ss_save_ok_74 <= {ss_save_ok_74[1:0], ss_save_ok_cs};
+        ss_load_ok_74 <= {ss_load_ok_74[1:0], ss_load_ok_cs};
     end
-    assign savestate_start_ack  = ss_busy_74[2] | ss_ok_74[2];
+    assign savestate_start_ack  = ss_busy_74[2] | ss_save_ok_74[2];
     assign savestate_start_busy = ss_busy_74[2];
-    assign savestate_start_ok   = ss_ok_74[2];
+    assign savestate_start_ok   = ss_save_ok_74[2];
     assign savestate_start_err  = 1'b0;
-    assign savestate_load_ack   = ss_busy_74[2] | ss_ok_74[2];
+    assign savestate_load_ack   = ss_busy_74[2] | ss_load_ok_74[2];
     assign savestate_load_busy  = ss_busy_74[2];
-    assign savestate_load_ok    = ss_ok_74[2];
+    assign savestate_load_ok    = ss_load_ok_74[2];
     assign savestate_load_err   = 1'b0;
 
     // Continuously report the save slot's size so the Pocket reads back 4 bytes
