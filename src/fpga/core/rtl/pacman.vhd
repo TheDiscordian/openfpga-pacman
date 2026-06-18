@@ -103,6 +103,11 @@ port
 	hs_access_read  : in  std_logic;
 	hs_access_write : in  std_logic;
 
+	-- savestate CPU register read-out (from the T80)
+	ss_cpu_idx      : in  std_logic_vector(4 downto 0) := (others => '0');
+	ss_cpu_dout     : out std_logic_vector(7 downto 0);
+	ss_cpu_bndry    : out std_logic;
+
 	--
 	RESET      : in  std_logic;
 	CLK        : in  std_logic;
@@ -341,7 +346,10 @@ port map (
 	BUSAK_n => open,
 	A       => cpu_addr,
 	DI      => cpu_data_in,
-	DO      => cpu_data_out
+	DO      => cpu_data_out,
+	ss_idx   => ss_cpu_idx,
+	ss_dout  => ss_cpu_dout,
+	ss_bndry => ss_cpu_bndry
 );
 
 --

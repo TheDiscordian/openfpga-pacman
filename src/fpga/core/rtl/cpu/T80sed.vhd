@@ -91,7 +91,11 @@ entity T80sed is
 		BUSAK_n         : out std_logic;
 		A               : out std_logic_vector(15 downto 0);
 		DI              : in  std_logic_vector(7 downto 0);
-		DO              : out std_logic_vector(7 downto 0)
+		DO              : out std_logic_vector(7 downto 0);
+		-- savestate register read-out (passes through to the T80 core)
+		ss_idx          : in  std_logic_vector(4 downto 0) := (others => '0');
+		ss_dout         : out std_logic_vector(7 downto 0);
+		ss_bndry        : out std_logic
 	);
 end T80sed;
 
@@ -132,7 +136,10 @@ begin
 			DO         => DO,
 			MC         => MCycle,
 			TS         => TState,
-			IntCycle_n => IntCycle_n);
+			IntCycle_n => IntCycle_n,
+			ss_idx     => ss_idx,
+			ss_dout    => ss_dout,
+			ss_bndry   => ss_bndry);
 
 	process (RESET_n, CLK_n)
 	begin

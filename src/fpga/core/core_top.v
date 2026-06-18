@@ -1065,6 +1065,13 @@ mf_pllbase mp1 (
     end
 
     wire [9:0] pac_audio;
+    // CPU savestate read-out bus from the T80 (via pacman). ss_cpu_idx is tied off
+    // for now -- this commit threads the bus end-to-end; the FSM CPU-capture (which
+    // grows the state buffer past the 4KB RAM) is the next step.
+    wire [4:0] ss_cpu_idx = 5'd0;
+    wire [7:0] ss_cpu_dout;
+    wire       ss_cpu_bndry;
+
     pacman pacman_core (
         .O_VIDEO_R (core_r), .O_VIDEO_G (core_g), .O_VIDEO_B (core_b),
         .O_HSYNC (core_hsync), .O_VSYNC (core_vsync),
@@ -1082,6 +1089,7 @@ mf_pllbase mp1 (
         .pause (hs_pause),
         .hs_address (hs_addr), .hs_data_in (hs_din), .hs_data_out (hs_dout),
         .hs_write_enable (hs_wen), .hs_access_read (hs_rd), .hs_access_write (hs_wr_acc),
+        .ss_cpu_idx (ss_cpu_idx), .ss_cpu_dout (ss_cpu_dout), .ss_cpu_bndry (ss_cpu_bndry),
         .RESET (core_reset),
         .CLK (clk_sys),
         .ENA_6 (ce_6m), .ENA_4 (ce_4m), .ENA_1M79 (ce_1m79)

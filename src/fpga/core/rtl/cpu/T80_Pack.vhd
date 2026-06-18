@@ -95,7 +95,10 @@ package T80_Pack is
 		TS                      : out std_logic_vector(2 downto 0);
 		IntCycle_n      : out std_logic;
 		IntE            : out std_logic;
-		Stop            : out std_logic
+		Stop            : out std_logic;
+		ss_idx          : in  std_logic_vector(4 downto 0) := (others => '0');
+		ss_dout         : out std_logic_vector(7 downto 0);
+		ss_bndry        : out std_logic
 	);
 	end component;
 
