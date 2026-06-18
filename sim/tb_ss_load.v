@@ -1,21 +1,33 @@
 // =============================================================================
-// tb_ss_load.v -- iverilog harness reproducing the on-device "load flickers
-// forever / never restores" savestate failure (branch feat/savestates, 39cb6a3).
+// tb_ss_load.v -- iverilog regression for the on-device "load flickers forever /
+// never restores" savestate fix (branch feat/savestates).
 //
 // It lifts the REAL savestate FSM out of core_top.v (the SS_IDLE/SS_ARM/SS_LD*/
 // SS_FIN state machine, the ss_cpu_* park bus, ss_pause_o, the clk_74a status
 // resync) verbatim into ss_fsm, drives it from a host model that performs the
-// real 0x00A4 LOAD sequence (fill the bridge buffer through a data_loader, pulse
-// savestate_load, poll savestate_load_ok exactly like core_bridge_cmd.v's 0xA4
-// handler), and stubs pacman's ss_cpu_bndry two ways:
+// real 0x00A4 LOAD / 0x00A0 SAVE sequences (fill the bridge buffer through a
+// data_loader, pulse savestate_load/start, poll the ok flag exactly like
+// core_bridge_cmd.v's 0xA4/0xA0 handlers), and stubs pacman's ss_cpu_bndry two
+// ways:
 //
-//   MODE A: CPU clock-enabled and free-running  -> ss_cpu_bndry pulses (M1/T1)
-//   MODE B: CPU held (reset / WAIT-stalled)     -> ss_cpu_bndry never pulses
+//   CPU free-running -> ss_cpu_bndry pulses (M1/T1)
+//   CPU held         -> ss_cpu_bndry never pulses (the Memory-load reset case)
 //
-// MODE B is exactly what happens on a Memory LOAD: the Pocket holds the core
-// while it streams the state in, so the CPU is not advancing -> SS_ARM's
-// natural-boundary wait can never be satisfied -> the FSM hangs in SS_ARM ->
-// savestate_load_ok never asserts -> host spins in the 0xA4 poll -> flicker.
+// THE BUG (pre-fix, 39cb6a3): LOAD armed in SS_ARM and waited for the natural
+// M1/T1 boundary. Around a Memory load the Pocket holds the core in reset, so
+// the CPU never reaches M1/T1 -> SS_ARM waited forever -> savestate_load_ok never
+// asserted -> the host spun in the 0xA4 poll -> screen flickered forever.
+//
+// THE FIX (this file mirrors core_top.v): LOAD skips SS_ARM and forces the park
+// immediately (a load overwrites all CPU state; the park itself creates the
+// M1/T1 boundary). SAVE keeps the SS_ARM natural-boundary wait, now with a
+// bounded timeout fallback (SS_ARM_TMO) so no wait can wedge the host forever.
+//
+// Scenarios (all must PASS):
+//   [A] LOAD, CPU free-running  -> completes, RAM restored, never armed
+//   [B] LOAD, CPU HELD          -> completes anyway (was the on-device hang)
+//   [C] SAVE, CPU free-running  -> arms + completes on the natural boundary
+//   [D] SAVE, CPU HELD          -> SS_ARM timeout fires, completes (no hang)
 //
 // `timescale 1ns/1ps
 // Run: iverilog -g2012 -o /tmp/tb_ss_load.vvp sim/tb_ss_load.v && vvp /tmp/tb_ss_load.vvp
@@ -82,6 +94,13 @@ module ss_fsm (
     localparam SS_IDLE=4'd0, SS_SV0=4'd1, SS_SV1=4'd2, SS_SV2=4'd3,
                SS_LD0=4'd4, SS_LD1=4'd5, SS_LD2=4'd6, SS_FIN=4'd7,
                SS_ARM=4'd8;
+    // SS_ARM bounded fallback (SAVE only). Use a SMALL timeout here so the sim's SAVE
+    // scenario exercises the fallback in bounded time; the synthesised core uses
+    // ~2^21 clk_sys cycles (~one frame) -- see core_top.v SS_ARM_TMO. The override is
+    // accepted via a parameter so the testbench can shrink it without touching logic.
+    parameter [20:0] SS_ARM_TMO = 21'd200;
+    localparam       SS_ARM_CW  = 21;
+    reg  [SS_ARM_CW-1:0] ss_arm_cnt = {SS_ARM_CW{1'b0}};
     reg  [3:0]  ss_st = SS_IDLE;
     reg  [12:0] ss_cnt;
     reg         ss_busy_cs = 1'b0;
@@ -100,16 +119,20 @@ module ss_fsm (
         case (ss_st)
         SS_IDLE: begin
             ss_pause_o <= 1'b0;
+            ss_arm_cnt <= {SS_ARM_CW{1'b0}};
             if (ss_start_rise) begin
                 ss_st <= SS_ARM; ss_cnt <= 13'd0; ss_op_load <= 1'b0;
                 ss_busy_cs <= 1'b1; ss_save_ok_cs <= 1'b0;
             end else if (ss_load_rise) begin
-                ss_st <= SS_ARM; ss_cnt <= 13'd0; ss_op_load <= 1'b1;
-                ss_busy_cs <= 1'b1; ss_load_ok_cs <= 1'b0;
+                // LOAD skips SS_ARM -- go straight to the walk, park immediately.
+                ss_st <= SS_LD0; ss_cnt <= 13'd0; ss_op_load <= 1'b1;
+                ss_busy_cs <= 1'b1; ss_load_ok_cs <= 1'b0; ss_pause_o <= 1'b1;
             end
         end
         SS_ARM: begin
-            if (ss_bndry_q) begin
+            // SAVE only; bounded fallback forces the park if no boundary arrives.
+            ss_arm_cnt <= ss_arm_cnt + {{(SS_ARM_CW-1){1'b0}}, 1'b1};
+            if (ss_bndry_q || (ss_arm_cnt == SS_ARM_TMO)) begin
                 ss_pause_o <= 1'b1;
                 ss_st <= ss_op_load ? SS_LD0 : SS_SV0;
             end
@@ -288,6 +311,24 @@ module tb_ss_load;
         end
     endtask
 
+    // Host 0x00A0 SAVE: pulse savestate_start, poll savestate_start_ok (mirrors
+    // core_bridge_cmd.v's 0xA0 handler).
+    reg save_done;
+    task host_save(input integer max_poll);
+        begin
+            save_done = 1'b0;
+            @(posedge clk_74a); savestate_start <= 1'b1;
+            for (poll = 0; poll < max_poll; poll = poll + 1) begin
+                repeat (50) @(posedge clk_74a);
+                if (savestate_start_ok) begin
+                    save_done = 1'b1;
+                    poll = max_poll;
+                end
+            end
+            @(posedge clk_74a); savestate_start <= 1'b0;
+        end
+    endtask
+
     integer st_arm_cycles;
     reg counting_arm;
     // count consecutive cycles parked in SS_ARM (state 8)
@@ -299,68 +340,101 @@ module tb_ss_load;
 
     localparam [3:0] SS_ARM_ST = 4'd8, SS_FIN_ST = 4'd7, SS_IDLE_ST = 4'd0;
 
-    integer i;
+    // Verify the work RAM restored by the load equals what the host wrote into the
+    // bridge buffer (bytes 0..4095). The host fill writes buffer[i] = i^0x5A, so a
+    // correct LOAD must leave workram[i] = i^0x5A.
+    task check_ram_restore(output integer mism);
+        integer j; reg [7:0] exp;
+        begin
+            mism = 0;
+            for (j = 0; j < 4096; j = j + 1) begin
+                exp = (j[7:0]) ^ 8'h5A;
+                if (workram[j] !== exp) mism = mism + 1;
+            end
+        end
+    endtask
+
+    integer i, mism;
     initial begin
+        savestate_start = 1'b0;
+        save_done = 1'b0;
+
+        $display("============================================================");
+        $display(" tb_ss_load: REGRESSION -- fixed savestate FSM (LOAD skips SS_ARM)");
+        $display("============================================================");
+
+        // ===== SCENARIO A: LOAD, CPU free-running (boundary pulses) ============
         for (i = 0; i < 4096; i = i + 1) workram[i] = 8'h00;
-
-        $display("============================================================");
-        $display(" tb_ss_load: reproduce savestate LOAD behaviour (39cb6a3)");
-        $display("============================================================");
-
-        // ===== SCENARIO A: CPU free-running (boundary pulses) =================
         cpu_running = 1'b1;
         $display("\n[A] LOAD with CPU free-running (ss_cpu_bndry pulses)");
         host_fill_buffer;
         st_arm_cycles = 0; counting_arm = 1;
-        host_load(1200);   // budget covers SS_ARM wait + full 12384-cycle walk
+        host_load(1200);
         counting_arm = 0;
-        $display("    SS_ARM cycles burned: %0d", st_arm_cycles);
-        $display("    final ss_st = %0d  (0=IDLE 7=FIN 8=ARM)", ss_st_o);
-        $display("    savestate_load_ok = %b   load_done = %b", savestate_load_ok, load_done);
-        if (load_done && ss_st_o == SS_IDLE_ST)
-            $display("    => PASS: LOAD completed, FSM returned to IDLE");
-        else begin
-            $display("    => FAIL: LOAD did not complete");
-            fail = fail + 1;
-        end
+        check_ram_restore(mism);
+        $display("    SS_ARM cycles burned: %0d (LOAD must not enter SS_ARM => 0)", st_arm_cycles);
+        $display("    final ss_st = %0d (0=IDLE)  load_ok=%b load_done=%b  RAM mismatches=%0d",
+                 ss_st_o, savestate_load_ok, load_done, mism);
+        if (load_done && ss_st_o == SS_IDLE_ST && mism == 0 && st_arm_cycles == 0)
+            $display("    => PASS: LOAD completed, returned to IDLE, RAM restored, never armed");
+        else begin $display("    => FAIL"); fail = fail + 1; end
 
-        // ===== SCENARIO B: CPU held (boundary never pulses) ==================
-        // This is the Memory-LOAD case: the Pocket holds the core while it
-        // streams the state in, so the CPU is not advancing M1/T1.
+        // ===== SCENARIO B: LOAD, CPU HELD (boundary never pulses) ==============
+        // The on-device Memory-load case: the Pocket holds the core in reset while
+        // it streams the state in, so the CPU never reaches M1/T1. PRE-FIX this
+        // wedged SS_ARM forever (flicker). POST-FIX the load skips SS_ARM and the
+        // park forces M1/T1 itself, so it MUST still complete.
+        for (i = 0; i < 4096; i = i + 1) workram[i] = 8'hFF;
         cpu_running = 1'b0;
         repeat (10) @(posedge clk_sys);
         $display("\n[B] LOAD with CPU HELD (ss_cpu_bndry never pulses) -- the on-device Memory-load case");
         host_fill_buffer;
         st_arm_cycles = 0; counting_arm = 1;
-        host_load(40);          // host polls many times, never sees ok
+        host_load(1200);
         counting_arm = 0;
-        $display("    SS_ARM cycles burned: %0d", st_arm_cycles);
-        $display("    final ss_st = %0d  (0=IDLE 7=FIN 8=ARM)", ss_st_o);
-        $display("    savestate_load_ok  = %b", savestate_load_ok);
-        $display("    savestate_load_busy= %b (stuck high => host sees perpetual 'busy')", savestate_load_busy);
-        $display("    load_done = %b", load_done);
-        if (!load_done && ss_st_o == SS_ARM_ST) begin
-            $display("    => REPRODUCED HANG: FSM wedged in SS_ARM, load_ok never asserts,");
-            $display("       load_busy stuck high -> host spins in 0xA4 poll -> screen flickers forever");
-        end else begin
-            $display("    => did NOT reproduce hang (unexpected)");
-            fail = fail + 1;
-        end
+        check_ram_restore(mism);
+        $display("    SS_ARM cycles burned: %0d (must be 0 -- LOAD bypasses the wait)", st_arm_cycles);
+        $display("    final ss_st = %0d (0=IDLE)  load_ok=%b load_done=%b  RAM mismatches=%0d",
+                 ss_st_o, savestate_load_ok, load_done, mism);
+        if (load_done && ss_st_o == SS_IDLE_ST && mism == 0 && st_arm_cycles == 0)
+            $display("    => PASS: LOAD completed despite the held CPU (no hang, RAM restored)");
+        else begin $display("    => FAIL: load did not complete with CPU held"); fail = fail + 1; end
 
-        // ===== SCENARIO C: after a hung load, CPU resumes -> stale FSM ========
-        // Even if the core later un-holds, the FSM is still parked in SS_ARM
-        // from the previous (timed-out) request; the next boundary completes a
-        // load whose pause window is no longer aligned with the host -> shows
-        // the FSM is not self-recovering / not bounded.
-        $display("\n[C] CPU resumes after the hung load (boundary returns)");
+        // ===== SCENARIO C: SAVE, CPU free-running (natural boundary) ===========
+        // SAVE must STILL arm in SS_ARM and wait for the natural M1/T1 boundary.
         cpu_running = 1'b1;
-        repeat (3000) @(posedge clk_sys);
-        $display("    final ss_st = %0d  (was wedged in ARM)", ss_st_o);
-        $display("    savestate_load_ok = %b", savestate_load_ok);
+        repeat (10) @(posedge clk_sys);
+        $display("\n[C] SAVE with CPU free-running (must arm + use the natural boundary)");
+        st_arm_cycles = 0; counting_arm = 1;
+        host_save(1200);
+        counting_arm = 0;
+        $display("    SS_ARM cycles burned: %0d (>0 => SAVE armed and waited)", st_arm_cycles);
+        $display("    final ss_st = %0d (0=IDLE)  start_ok=%b save_done=%b",
+                 ss_st_o, savestate_start_ok, save_done);
+        if (save_done && ss_st_o == SS_IDLE_ST && st_arm_cycles > 0)
+            $display("    => PASS: SAVE armed on the natural boundary and completed");
+        else begin $display("    => FAIL: save did not complete via boundary"); fail = fail + 1; end
+
+        // ===== SCENARIO D: SAVE, CPU HELD (timeout fallback) ==================
+        // Defense in depth: if the boundary never arrives at SAVE time, the SS_ARM
+        // bounded fallback (SS_ARM_TMO) must force the park so the host handshake
+        // can never wedge forever.
+        cpu_running = 1'b0;
+        repeat (10) @(posedge clk_sys);
+        $display("\n[D] SAVE with CPU HELD (boundary never pulses -- exercise SS_ARM timeout)");
+        st_arm_cycles = 0; counting_arm = 1;
+        host_save(1200);
+        counting_arm = 0;
+        $display("    SS_ARM cycles burned: %0d (~SS_ARM_TMO => fallback fired)", st_arm_cycles);
+        $display("    final ss_st = %0d (0=IDLE)  start_ok=%b save_done=%b",
+                 ss_st_o, savestate_start_ok, save_done);
+        if (save_done && ss_st_o == SS_IDLE_ST && st_arm_cycles > 0)
+            $display("    => PASS: SS_ARM timeout forced the park, SAVE completed (no hang)");
+        else begin $display("    => FAIL: save hung with CPU held (timeout did not fire)"); fail = fail + 1; end
 
         $display("\n============================================================");
-        if (fail == 0) $display(" RESULT: behaviour reproduced as expected");
-        else           $display(" RESULT: %0d scenario(s) off-expectation", fail);
+        if (fail == 0) $display(" RESULT: ALL PASS -- LOAD no longer hangs, SAVE path intact");
+        else           $display(" RESULT: %0d scenario(s) FAILED", fail);
         $display("============================================================");
         $finish;
     end

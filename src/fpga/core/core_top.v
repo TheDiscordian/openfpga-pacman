@@ -862,6 +862,13 @@ mf_pllbase mp1 (
     localparam SS_IDLE=4'd0, SS_SV0=4'd1, SS_SV1=4'd2, SS_SV2=4'd3,
                SS_LD0=4'd4, SS_LD1=4'd5, SS_LD2=4'd6, SS_FIN=4'd7,
                SS_ARM=4'd8;
+    // SS_ARM bounded fallback: if the natural M1/T1 boundary never arrives (SAVE path
+    // only -- LOAD no longer arms), force the park after ~one frame so the host
+    // handshake (busy/ok) can never wedge forever. clk_sys ~24.576MHz, a frame is
+    // ~410k cycles; 2^21-1 (~85ms, ~5 frames) is well past one frame yet bounded.
+    localparam        SS_ARM_CW  = 21;              // counter width
+    localparam [20:0] SS_ARM_TMO = 21'h1FFFFF;      // 2^21-1 clk_sys cycles
+    reg  [SS_ARM_CW-1:0] ss_arm_cnt = {SS_ARM_CW{1'b0}};
     reg  [3:0]  ss_st = SS_IDLE;
     reg  [12:0] ss_cnt;
     reg         ss_busy_cs = 1'b0;
@@ -881,31 +888,46 @@ mf_pllbase mp1 (
         case (ss_st)
         SS_IDLE: begin
             ss_pause_o <= 1'b0;
-            // Arm the op and clear THIS op's ok, then wait in SS_ARM for the CPU to
-            // reach an M1/T1 boundary before walking any byte. Crucially DO NOT
-            // assert ss_pause_o during the arm wait: the CPU must keep running so it
-            // finishes its current instruction (incl. any in-flight store write) and
-            // reaches a real fetch boundary. Clearing the per-op ok here (not on the
-            // next op's rise) guarantees the host samples ack=0 for a fresh request.
+            ss_arm_cnt <= {SS_ARM_CW{1'b0}};
+            // SAVE arms in SS_ARM and waits for the CPU to reach an M1/T1 boundary
+            // before walking any byte. Crucially DO NOT assert ss_pause_o during the
+            // arm wait: the CPU must keep running so it finishes its current
+            // instruction (incl. any in-flight store write) and reaches a real fetch
+            // boundary. Clearing the per-op ok here (not on the next op's rise)
+            // guarantees the host samples ack=0 for a fresh request.
+            //
+            // LOAD does NOT arm: it goes straight to the walk (SS_LD0) and forces the
+            // park immediately. A load OVERWRITES the entire CPU register set, so
+            // there is no in-flight instruction to protect and no live boundary worth
+            // waiting for. More importantly, around a Memory load the host holds the
+            // core in reset while it streams the blob in, so the T80 sits at
+            // MCycle/TState=001/000 (TState=0, not 1) and ss_cpu_bndry can NEVER pulse
+            // (T80.vhd:918,1071) -- arming on LOAD would wait forever -> the on-device
+            // "load flickers forever". ss_cpu_load (=ss_walking) goes true the instant
+            // we leave SS_IDLE, so the T80 park (T80.vhd:1177, CEN-independent) forces
+            // MCycle/TState=M1/T1 itself; no pre-wait is needed or possible.
             if (ss_start_rise) begin
                 ss_st <= SS_ARM; ss_cnt <= 13'd0; ss_op_load <= 1'b0;
                 ss_busy_cs <= 1'b1; ss_save_ok_cs <= 1'b0;
             end else if (ss_load_rise) begin
-                ss_st <= SS_ARM; ss_cnt <= 13'd0; ss_op_load <= 1'b1;
-                ss_busy_cs <= 1'b1; ss_load_ok_cs <= 1'b0;
+                ss_st <= SS_LD0; ss_cnt <= 13'd0; ss_op_load <= 1'b1;
+                ss_busy_cs <= 1'b1; ss_load_ok_cs <= 1'b0; ss_pause_o <= 1'b1;
             end
         end
-        // Wait for the CPU to reach an M1/T1 fetch boundary NATURALLY. ss_cpu_load
-        // is NOT asserted here (ss_walking false in SS_ARM) and ss_pause_o is LOW, so
-        // the T80 runs free to the end of its current instruction -- any in-flight
-        // memory cycle (e.g. a store's write) COMPLETES instead of being truncated by
-        // a forced park. The moment ss_cpu_bndry='1' we enter the walk, which raises
-        // ss_cpu_load (park: forces+holds MCycle/TState=M1/T1, T80.vhd:1177) AND
-        // ss_pause_o. The park pins the CPU at exactly the boundary it naturally
-        // reached -- so the captured PC/regs are coherent with the captured RAM
-        // (save), and the restore resumes from the parked boundary (load).
+        // SAVE only: wait for the CPU to reach an M1/T1 fetch boundary NATURALLY.
+        // ss_cpu_load is NOT asserted here (ss_walking false in SS_ARM) and ss_pause_o
+        // is LOW, so the T80 runs free to the end of its current instruction -- any
+        // in-flight memory cycle (e.g. a store's write) COMPLETES instead of being
+        // truncated by a forced park. The moment ss_cpu_bndry='1' we enter the walk,
+        // which raises ss_cpu_load (park: forces+holds MCycle/TState=M1/T1,
+        // T80.vhd:1177) AND ss_pause_o. The park pins the CPU at exactly the boundary
+        // it naturally reached -- so the captured PC/regs are coherent with the
+        // captured RAM. A bounded fallback (ss_arm_cnt) forces the park anyway if the
+        // boundary never arrives within ~one frame, so the host handshake can never
+        // wedge forever (busy stuck high) regardless of CPU clocking state.
         SS_ARM: begin
-            if (ss_bndry_q) begin
+            ss_arm_cnt <= ss_arm_cnt + {{(SS_ARM_CW-1){1'b0}}, 1'b1};
+            if (ss_bndry_q || (ss_arm_cnt == SS_ARM_TMO)) begin
                 ss_pause_o <= 1'b1;
                 ss_st <= ss_op_load ? SS_LD0 : SS_SV0;
             end
@@ -946,18 +968,21 @@ mf_pllbase mp1 (
     end
 
     // CPU savestate bus into pacman/T80. ss_cpu_load is held for the entire WALK
-    // (ss_walking = active && not SS_ARM), parking the T80 at M1/T1 continuously
-    // once SS_ARM has confirmed the CPU reached that boundary NATURALLY. It is NOT
-    // asserted during SS_ARM, so the park does not truncate an in-flight bus cycle:
-    // the CPU finishes its current instruction (incl. any store write), reaches the
-    // boundary; the walk then asserts ss_cpu_load, and the T80 park (T80.vhd:1177,
+    // (ss_walking = active && not SS_ARM), parking the T80 at M1/T1 continuously.
+    // SAVE: SS_ARM first lets the CPU run free to the boundary it naturally reaches
+    // (ss_cpu_load NOT asserted in SS_ARM, ss_pause_o LOW) so no in-flight bus cycle
+    // is truncated; the walk then asserts ss_cpu_load and the T80 park (T80.vhd:1177,
     // re-forced every CEN edge) pins it at that exact boundary while RAM/regs are
-    // read. No pacman.vhd pause/CLKEN change is needed -- the park is the freeze.
-    // The captured PC/regs are therefore coherent with the captured RAM (save), and
-    // the restore resumes from the parked boundary (load). Previously this was gated
-    // on ss_cpu_ph (only the last 32 bytes), leaving the CPU WAIT-stalled
-    // mid-instruction for the 12288-cycle RAM phase -> incoherent snapshot -> bad-PC
-    // restore -> watchdog reset on device.
+    // read -> captured PC/regs coherent with captured RAM.
+    // LOAD: skips SS_ARM (see SS_IDLE) and asserts ss_cpu_load immediately. A load
+    // overwrites the whole register set, and around a Memory load the host holds the
+    // core in reset (T80 sits at TState=0, never the M1/T1 boundary) so no natural
+    // boundary can arrive -- the park itself forces MCycle/TState=M1/T1 CEN-independently
+    // and the restore proceeds. (Arming on LOAD was the SS_ARM deadlock that produced
+    // the on-device "load flickers forever".) No pacman.vhd pause/CLKEN change is
+    // needed -- the park is the freeze. Previously this was gated on ss_cpu_ph (only
+    // the last 32 bytes), leaving the CPU WAIT-stalled mid-instruction for the
+    // 12288-cycle RAM phase -> incoherent snapshot -> bad-PC restore -> watchdog reset.
     assign ss_cpu_idx  = ss_cpu_idx_r;
     assign ss_cpu_din  = ss_cpu_din_r;
     assign ss_cpu_wr   = ss_cpu_wr_r;
