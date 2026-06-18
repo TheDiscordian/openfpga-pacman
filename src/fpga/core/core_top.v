@@ -819,20 +819,22 @@ mf_pllbase mp1 (
         .read_en (), .read_addr (ssb_ul_addr), .read_data (ssb_ul_data)
     );
 
-    // True dual-port state buffer (port A = serialise FSM, port B = bridge).
-    reg  [7:0]  ss_buf [0:4095];
+    // True dual-port state buffer in M10K. A hand-rolled array with two write ports
+    // infers as registers here (blew ALMs to 157%), so use the project's
+    // altsyncram-backed dpram. Port A = serialise FSM, port B = bridge; port B reads
+    // (unloader, save) and writes (loader, load) never overlap, so its address muxes
+    // on the loader write-enable. 1-cycle registered read latency on both ports.
     reg  [11:0] ssa_addr;
     reg  [7:0]  ssa_wdata;
     reg         ssa_we;
-    reg  [7:0]  ssa_rdata;
-    reg  [7:0]  ssb_rdata;
-    always @(posedge clk_sys) begin
-        if (ssa_we)    ss_buf[ssa_addr]    <= ssa_wdata;   // FSM write (save capture)
-        ssa_rdata <= ss_buf[ssa_addr];                     // FSM read  (load)
-        if (ssb_ld_we) ss_buf[ssb_ld_addr] <= ssb_ld_data; // bridge write (load in)
-        ssb_rdata <= ss_buf[ssb_ul_addr];                  // bridge read  (save out)
-    end
-    assign ssb_ul_data = ssb_rdata;
+    wire [7:0]  ssa_q, ssb_q;
+    dpram #(.addr_width_g(12), .data_width_g(8)) ss_buf (
+        .clock_a (clk_sys), .address_a (ssa_addr), .data_a (ssa_wdata),
+        .wren_a  (ssa_we),  .enable_a (1'b1), .q_a (ssa_q),
+        .clock_b (clk_sys), .address_b (ssb_ld_we ? ssb_ld_addr : ssb_ul_addr),
+        .data_b  (ssb_ld_data), .wren_b (ssb_ld_we), .enable_b (1'b1), .q_b (ssb_q)
+    );
+    assign ssb_ul_data = ssb_q;
 
     // start/load pulses cross from the clk_74a bridge into clk_sys.
     reg [2:0] ss_start_sr = 3'd0, ss_load_sr = 3'd0;
@@ -843,7 +845,10 @@ mf_pllbase mp1 (
     wire ss_start_rise = (ss_start_sr[2:1] == 2'b01);
     wire ss_load_rise  = (ss_load_sr[2:1]  == 2'b01);
 
-    localparam SS_IDLE=3'd0, SS_SV0=3'd1, SS_SV1=3'd2, SS_LD0=3'd3, SS_LD1=3'd4, SS_FIN=3'd5;
+    // 3 cycles per byte: present address, wait one cycle for the registered read,
+    // then capture (save) or write back (load).
+    localparam SS_IDLE=3'd0, SS_SV0=3'd1, SS_SV1=3'd2, SS_SV2=3'd3,
+               SS_LD0=3'd4, SS_LD1=3'd5, SS_LD2=3'd6, SS_FIN=3'd7;
     reg  [2:0]  ss_st = SS_IDLE;
     reg  [12:0] ss_cnt;
     reg         ss_busy_cs = 1'b0, ss_ok_cs = 1'b0;
@@ -864,22 +869,19 @@ mf_pllbase mp1 (
                 ss_busy_cs <= 1'b1; ss_ok_cs <= 1'b0; ss_pause_o <= 1'b1;
             end
         end
-        SS_SV0: begin                                   // present RAM read address
-            ss_addr_o <= ss_cnt[11:0]; ss_rd_o <= 1'b1;
-            ss_st <= SS_SV1;
-        end
-        SS_SV1: begin                                   // capture tap output into buffer
+        // SAVE: read work RAM[cnt] via the tap -> buffer
+        SS_SV0: begin ss_addr_o <= ss_cnt[11:0]; ss_rd_o <= 1'b1; ss_st <= SS_SV1; end
+        SS_SV1: begin ss_st <= SS_SV2; end               // tap read latency (addr held)
+        SS_SV2: begin
             ssa_addr <= ss_cnt[11:0]; ssa_wdata <= hs_dout; ssa_we <= 1'b1;
             if (ss_cnt == SS_BYTES - 1) ss_st <= SS_FIN;
             else begin ss_cnt <= ss_cnt + 13'd1; ss_st <= SS_SV0; end
         end
-        SS_LD0: begin                                   // present buffer read address
-            ssa_addr <= ss_cnt[11:0];
-            ss_st <= SS_LD1;
-        end
-        SS_LD1: begin                                   // write buffer byte back into RAM
-            ss_addr_o <= ss_cnt[11:0]; ss_din_o <= ssa_rdata;
-            ss_wen_o <= 1'b1; ss_wr_o <= 1'b1;
+        // LOAD: read buffer[cnt] -> write work RAM via the tap
+        SS_LD0: begin ssa_addr <= ss_cnt[11:0]; ss_st <= SS_LD1; end
+        SS_LD1: begin ss_st <= SS_LD2; end               // dpram read latency (addr held)
+        SS_LD2: begin
+            ss_addr_o <= ss_cnt[11:0]; ss_din_o <= ssa_q; ss_wen_o <= 1'b1; ss_wr_o <= 1'b1;
             if (ss_cnt == SS_BYTES - 1) ss_st <= SS_FIN;
             else begin ss_cnt <= ss_cnt + 13'd1; ss_st <= SS_LD0; end
         end
