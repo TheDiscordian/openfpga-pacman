@@ -118,7 +118,14 @@ entity T80 is
 		TS              : out std_logic_vector(2 downto 0);
 		IntCycle_n      : out std_logic;
 		IntE            : out std_logic;
-		Stop            : out std_logic
+		Stop            : out std_logic;
+		-- savestate read-out: ss_idx selects one state byte, ss_dout returns it.
+		-- 0 ACC 1 F 2 Ap 3 Fp 4 I 5 R 6 SPl 7 SPh 8 PCl 9 PCh
+		-- 10 {IM[5:4],Halt,Alt,IFF2,IFF1} ; 16..31 regfile (8x16, idx16+2k=H,17+2k=L)
+		-- ss_bndry = instruction-fetch boundary (safe point to snapshot)
+		ss_idx          : in  std_logic_vector(4 downto 0) := (others => '0');
+		ss_dout         : out std_logic_vector(7 downto 0);
+		ss_bndry        : out std_logic
 	);
 end T80;
 
@@ -249,6 +256,10 @@ architecture rtl of T80 is
 	signal SetEI                : std_logic;
 	signal IMode                : std_logic_vector(1 downto 0);
 	signal Halt                 : std_logic;
+	-- savestate dump: 4th regfile read port + read-out mux
+	signal ss_regaddr           : std_logic_vector(2 downto 0);
+	signal ss_regdoh            : std_logic_vector(7 downto 0);
+	signal ss_regdol            : std_logic_vector(7 downto 0);
 
 begin
 
@@ -843,7 +854,39 @@ begin
 			DOBH => RegBusB(15 downto 8),
 			DOBL => RegBusB(7 downto 0),
 			DOCH => RegBusC(15 downto 8),
-			DOCL => RegBusC(7 downto 0));
+			DOCL => RegBusC(7 downto 0),
+			AddrD => ss_regaddr,
+			DODH => ss_regdoh,
+			DODL => ss_regdol);
+
+	-- Savestate read-out (combinational, purely additive -- no effect on CPU
+	-- operation). ss_idx selects one state byte; the regfile occupies 16..31.
+	ss_regaddr <= ss_idx(3 downto 1);
+	ss_bndry   <= '1' when MCycle = "001" and TState = "001" else '0';
+	process (ss_idx, ACC, F, Ap, Fp, I, R, SP, PC, IMode, Halt, Alternate,
+	         IntE_FF1, IntE_FF2, ss_regdoh, ss_regdol)
+	begin
+		case ss_idx is
+			when "00000" => ss_dout <= ACC;
+			when "00001" => ss_dout <= F;
+			when "00010" => ss_dout <= Ap;
+			when "00011" => ss_dout <= Fp;
+			when "00100" => ss_dout <= I;
+			when "00101" => ss_dout <= std_logic_vector(R);
+			when "00110" => ss_dout <= std_logic_vector(SP(7 downto 0));
+			when "00111" => ss_dout <= std_logic_vector(SP(15 downto 8));
+			when "01000" => ss_dout <= std_logic_vector(PC(7 downto 0));
+			when "01001" => ss_dout <= std_logic_vector(PC(15 downto 8));
+			when "01010" => ss_dout <= "00" & IMode & Halt & Alternate & IntE_FF2 & IntE_FF1;
+			when others  =>                          -- 16..31 regfile, else 0
+				if ss_idx(4) = '1' then
+					if ss_idx(0) = '0' then ss_dout <= ss_regdoh;
+					else                    ss_dout <= ss_regdol; end if;
+				else
+					ss_dout <= (others => '0');
+				end if;
+		end case;
+	end process;
 
 ---------------------------------------------------------------------------
 --

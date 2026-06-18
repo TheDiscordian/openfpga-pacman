@@ -115,7 +115,10 @@ package T80_Pack is
 		DOBH            : out std_logic_vector(7 downto 0);
 		DOBL            : out std_logic_vector(7 downto 0);
 		DOCH            : out std_logic_vector(7 downto 0);
-		DOCL            : out std_logic_vector(7 downto 0)
+		DOCL            : out std_logic_vector(7 downto 0);
+		AddrD           : in std_logic_vector(2 downto 0) := (others => '0');
+		DODH            : out std_logic_vector(7 downto 0);
+		DODL            : out std_logic_vector(7 downto 0)
 	);
 	end component;
 

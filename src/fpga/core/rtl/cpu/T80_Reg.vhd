@@ -69,7 +69,11 @@ entity T80_Reg is
 		DOBH		: out std_logic_vector(7 downto 0);
 		DOBL		: out std_logic_vector(7 downto 0);
 		DOCH		: out std_logic_vector(7 downto 0);
-		DOCL		: out std_logic_vector(7 downto 0)
+		DOCL		: out std_logic_vector(7 downto 0);
+		-- savestate dump: read-only 4th port, walks indices 0..7 while paused
+		AddrD		: in std_logic_vector(2 downto 0) := (others => '0');
+		DODH		: out std_logic_vector(7 downto 0);
+		DODL		: out std_logic_vector(7 downto 0)
 	);
 end T80_Reg;
 
@@ -101,5 +105,8 @@ begin
 	DOBL <= RegsL(to_integer(unsigned(AddrB)));
 	DOCH <= RegsH(to_integer(unsigned(AddrC)));
 	DOCL <= RegsL(to_integer(unsigned(AddrC)));
+
+	DODH <= RegsH(to_integer(unsigned(AddrD)));
+	DODL <= RegsL(to_integer(unsigned(AddrD)));
 
 end;
