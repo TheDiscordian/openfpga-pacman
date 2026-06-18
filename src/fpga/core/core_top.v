@@ -789,9 +789,10 @@ mf_pllbase mp1 (
     // save/reload pass validates. The logic below synthesises but is dormant.
     // See SAVESTATES.md.
     // ===================================================================
-    localparam        SS_SUPPORTED = 1'b0;          // -> 1 only after on-device validation
+    localparam        SS_SUPPORTED = 1'b1;          // enabled on this branch for on-device validation (RAM + CPU)
     localparam [31:0] SS_ADDR      = 32'h40000000;  // bridge window 0x4
-    localparam [12:0] SS_BYTES     = 13'd4096;      // main RAM today; grows with CPU + latches
+    localparam [12:0] SS_RAM       = 13'd4096;      // 4KB main work RAM (buffer 0..4095)
+    localparam [12:0] SS_BYTES     = 13'd4128;      // + 32 CPU bytes (buffer 4096..4127)
 
     assign savestate_supported   = SS_SUPPORTED;
     assign savestate_addr        = SS_ADDR;
@@ -801,18 +802,18 @@ mf_pllbase mp1 (
     // Bridge <-> savestate buffer. data_loader writes it on load; data_unloader
     // reads it on save (mutually exclusive, so one bridge port suffices).
     wire        ssb_ld_we;
-    wire [11:0] ssb_ld_addr;
+    wire [12:0] ssb_ld_addr;
     wire [7:0]  ssb_ld_data;
-    wire [11:0] ssb_ul_addr;
+    wire [12:0] ssb_ul_addr;
     wire [7:0]  ssb_ul_data;
     wire [31:0] ss_rd_data;
-    data_loader #(.ADDRESS_MASK_UPPER_4 (4'h4), .ADDRESS_SIZE (12), .OUTPUT_WORD_SIZE (1)) ss_loader (
+    data_loader #(.ADDRESS_MASK_UPPER_4 (4'h4), .ADDRESS_SIZE (13), .OUTPUT_WORD_SIZE (1)) ss_loader (
         .clk_74a (clk_74a), .clk_memory (clk_sys),
         .bridge_wr (bridge_wr), .bridge_endian_little (bridge_endian_little),
         .bridge_addr (bridge_addr), .bridge_wr_data (bridge_wr_data),
         .write_en (ssb_ld_we), .write_addr (ssb_ld_addr), .write_data (ssb_ld_data)
     );
-    data_unloader #(.ADDRESS_MASK_UPPER_4 (4'h4), .ADDRESS_SIZE (12), .READ_MEM_CLOCK_DELAY (4), .INPUT_WORD_SIZE (1)) ss_unloader (
+    data_unloader #(.ADDRESS_MASK_UPPER_4 (4'h4), .ADDRESS_SIZE (13), .READ_MEM_CLOCK_DELAY (4), .INPUT_WORD_SIZE (1)) ss_unloader (
         .clk_74a (clk_74a), .clk_memory (clk_sys),
         .bridge_rd (bridge_rd), .bridge_endian_little (bridge_endian_little),
         .bridge_addr (bridge_addr), .bridge_rd_data (ss_rd_data),
@@ -824,11 +825,11 @@ mf_pllbase mp1 (
     // altsyncram-backed dpram. Port A = serialise FSM, port B = bridge; port B reads
     // (unloader, save) and writes (loader, load) never overlap, so its address muxes
     // on the loader write-enable. 1-cycle registered read latency on both ports.
-    reg  [11:0] ssa_addr;
+    reg  [12:0] ssa_addr;
     reg  [7:0]  ssa_wdata;
     reg         ssa_we;
     wire [7:0]  ssa_q, ssb_q;
-    dpram #(.addr_width_g(12), .data_width_g(8)) ss_buf (
+    dpram #(.addr_width_g(13), .data_width_g(8)) ss_buf (
         .clock_a (clk_sys), .address_a (ssa_addr), .data_a (ssa_wdata),
         .wren_a  (ssa_we),  .enable_a (1'b1), .q_a (ssa_q),
         .clock_b (clk_sys), .address_b (ssb_ld_we ? ssb_ld_addr : ssb_ul_addr),
@@ -845,8 +846,10 @@ mf_pllbase mp1 (
     wire ss_start_rise = (ss_start_sr[2:1] == 2'b01);
     wire ss_load_rise  = (ss_load_sr[2:1]  == 2'b01);
 
-    // 3 cycles per byte: present address, wait one cycle for the registered read,
-    // then capture (save) or write back (load).
+    // 3 cycles per byte: present address/index, wait one cycle for the registered
+    // read, then capture (save) or write back (load). One unified counter walks the
+    // 4128-byte blob: bytes 0..4095 = work RAM (via the hiscore tap), 4096..4127 =
+    // CPU registers (via the ss_cpu_* bus into the T80, ss_idx = cnt[4:0]).
     localparam SS_IDLE=3'd0, SS_SV0=3'd1, SS_SV1=3'd2, SS_SV2=3'd3,
                SS_LD0=3'd4, SS_LD1=3'd5, SS_LD2=3'd6, SS_FIN=3'd7;
     reg  [2:0]  ss_st = SS_IDLE;
@@ -855,9 +858,13 @@ mf_pllbase mp1 (
     reg         ss_pause_o, ss_rd_o, ss_wr_o, ss_wen_o;
     reg  [11:0] ss_addr_o;
     reg  [7:0]  ss_din_o;
+    reg  [4:0]  ss_cpu_idx_r;
+    reg  [7:0]  ss_cpu_din_r;
+    reg         ss_cpu_wr_r;
     wire        ss_active = (ss_st != SS_IDLE);
+    wire        ss_cpu_ph = (ss_cnt >= SS_RAM);     // CPU phase of the walk
     always @(posedge clk_sys) begin
-        ss_rd_o <= 1'b0; ss_wr_o <= 1'b0; ss_wen_o <= 1'b0; ssa_we <= 1'b0;
+        ss_rd_o <= 1'b0; ss_wr_o <= 1'b0; ss_wen_o <= 1'b0; ssa_we <= 1'b0; ss_cpu_wr_r <= 1'b0;
         case (ss_st)
         SS_IDLE: begin
             ss_pause_o <= 1'b0;
@@ -869,19 +876,29 @@ mf_pllbase mp1 (
                 ss_busy_cs <= 1'b1; ss_ok_cs <= 1'b0; ss_pause_o <= 1'b1;
             end
         end
-        // SAVE: read work RAM[cnt] via the tap -> buffer
-        SS_SV0: begin ss_addr_o <= ss_cnt[11:0]; ss_rd_o <= 1'b1; ss_st <= SS_SV1; end
-        SS_SV1: begin ss_st <= SS_SV2; end               // tap read latency (addr held)
+        // SAVE: present source addr/index -> wait -> capture into buffer[cnt]
+        SS_SV0: begin
+            if (ss_cpu_ph) ss_cpu_idx_r <= ss_cnt[4:0];
+            else begin ss_addr_o <= ss_cnt[11:0]; ss_rd_o <= 1'b1; end
+            ss_st <= SS_SV1;
+        end
+        SS_SV1: begin ss_st <= SS_SV2; end               // read latency (addr/index held)
         SS_SV2: begin
-            ssa_addr <= ss_cnt[11:0]; ssa_wdata <= hs_dout; ssa_we <= 1'b1;
+            ssa_addr  <= ss_cnt;
+            ssa_wdata <= ss_cpu_ph ? ss_cpu_dout : hs_dout;
+            ssa_we    <= 1'b1;
             if (ss_cnt == SS_BYTES - 1) ss_st <= SS_FIN;
             else begin ss_cnt <= ss_cnt + 13'd1; ss_st <= SS_SV0; end
         end
-        // LOAD: read buffer[cnt] -> write work RAM via the tap
-        SS_LD0: begin ssa_addr <= ss_cnt[11:0]; ss_st <= SS_LD1; end
-        SS_LD1: begin ss_st <= SS_LD2; end               // dpram read latency (addr held)
+        // LOAD: read buffer[cnt] -> write the dest (RAM tap or CPU bus)
+        SS_LD0: begin ssa_addr <= ss_cnt; ss_st <= SS_LD1; end
+        SS_LD1: begin ss_st <= SS_LD2; end               // dpram read latency
         SS_LD2: begin
-            ss_addr_o <= ss_cnt[11:0]; ss_din_o <= ssa_q; ss_wen_o <= 1'b1; ss_wr_o <= 1'b1;
+            if (ss_cpu_ph) begin
+                ss_cpu_idx_r <= ss_cnt[4:0]; ss_cpu_din_r <= ssa_q; ss_cpu_wr_r <= 1'b1;
+            end else begin
+                ss_addr_o <= ss_cnt[11:0]; ss_din_o <= ssa_q; ss_wen_o <= 1'b1; ss_wr_o <= 1'b1;
+            end
             if (ss_cnt == SS_BYTES - 1) ss_st <= SS_FIN;
             else begin ss_cnt <= ss_cnt + 13'd1; ss_st <= SS_LD0; end
         end
@@ -891,6 +908,14 @@ mf_pllbase mp1 (
         end
         endcase
     end
+
+    // CPU savestate bus into pacman/T80. ss_cpu_load is held across the CPU phase
+    // (save or load) so the T80 parks at the M1/T1 fetch boundary -- clean register
+    // reads on save, and on the load it resumes by fetching the restored PC.
+    assign ss_cpu_idx  = ss_cpu_idx_r;
+    assign ss_cpu_din  = ss_cpu_din_r;
+    assign ss_cpu_wr   = ss_cpu_wr_r;
+    assign ss_cpu_load = ss_active & ss_cpu_ph;
 
     // tap mux: savestate FSM owns the tap while active, else hiscore does.
     assign hs_addr   = ss_active ? ss_addr_o : hsi_addr;
@@ -1070,12 +1095,12 @@ mf_pllbase mp1 (
     // FSM CPU capture/restore (which grows the state buffer past the 4KB RAM) is the
     // next step. With load=0 and wr=0 the T80 is bit-identical to stock, so the build
     // stays a no-op until the FSM drives these.
-    wire [4:0] ss_cpu_idx  = 5'd0;
+    wire [4:0] ss_cpu_idx;     // driven by the savestate FSM (above)
     wire [7:0] ss_cpu_dout;
     wire       ss_cpu_bndry;
-    wire [7:0] ss_cpu_din  = 8'd0;
-    wire       ss_cpu_wr   = 1'b0;
-    wire       ss_cpu_load = 1'b0;
+    wire [7:0] ss_cpu_din;
+    wire       ss_cpu_wr;
+    wire       ss_cpu_load;
 
     pacman pacman_core (
         .O_VIDEO_R (core_r), .O_VIDEO_G (core_g), .O_VIDEO_B (core_b),
