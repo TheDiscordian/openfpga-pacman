@@ -5,9 +5,9 @@
 #   ./sim/run_t80_ss.sh export     # just the export read-out TB
 #   ./sim/run_t80_ss.sh restore    # just the save+restore (export+import) TB
 #
-# Run from the repo root. The save+restore TB requires the import ports
-# (ss_din/ss_wr/ss_load) on T80/T80sed/T80_Reg; until those land it analyses but
-# elaboration of tb_t80_saverestore will fail on the missing ports.
+# Run from the repo root. The save+restore TB drives the import ports
+# (ss_din/ss_wr/ss_load) on T80/T80sed and the SSWE*/SSDI* restore path on
+# T80_Reg. Both TBs PASS on the current RTL.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"

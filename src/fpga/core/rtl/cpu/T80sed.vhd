@@ -92,10 +92,13 @@ entity T80sed is
 		A               : out std_logic_vector(15 downto 0);
 		DI              : in  std_logic_vector(7 downto 0);
 		DO              : out std_logic_vector(7 downto 0);
-		-- savestate register read-out (passes through to the T80 core)
+		-- savestate register read-out + restore (passes through to the T80 core)
 		ss_idx          : in  std_logic_vector(4 downto 0) := (others => '0');
 		ss_dout         : out std_logic_vector(7 downto 0);
-		ss_bndry        : out std_logic
+		ss_bndry        : out std_logic;
+		ss_din          : in  std_logic_vector(7 downto 0) := (others => '0');
+		ss_wr           : in  std_logic := '0';
+		ss_load         : in  std_logic := '0'
 	);
 end T80sed;
 
@@ -139,7 +142,10 @@ begin
 			IntCycle_n => IntCycle_n,
 			ss_idx     => ss_idx,
 			ss_dout    => ss_dout,
-			ss_bndry   => ss_bndry);
+			ss_bndry   => ss_bndry,
+			ss_din     => ss_din,
+			ss_wr      => ss_wr,
+			ss_load    => ss_load);
 
 	process (RESET_n, CLK_n)
 	begin

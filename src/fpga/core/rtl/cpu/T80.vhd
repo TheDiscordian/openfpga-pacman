@@ -125,7 +125,16 @@ entity T80 is
 		-- ss_bndry = instruction-fetch boundary (safe point to snapshot)
 		ss_idx          : in  std_logic_vector(4 downto 0) := (others => '0');
 		ss_dout         : out std_logic_vector(7 downto 0);
-		ss_bndry        : out std_logic
+		ss_bndry        : out std_logic;
+		-- savestate restore: ss_wr latches ss_din into the state element selected
+		-- by ss_idx (same 0..31 map as the read-out). ss_load held high parks the
+		-- core at the M1/T1 fetch boundary (ss_bndry='1', A=PC) so streamed bytes
+		-- are not disturbed; on its falling edge the core resumes from restored PC.
+		-- All three are additive: with ss_wr='0' and ss_load='0' the core is
+		-- bit-identical to stock T80.
+		ss_din          : in  std_logic_vector(7 downto 0) := (others => '0');
+		ss_wr           : in  std_logic := '0';
+		ss_load         : in  std_logic := '0'
 	);
 end T80;
 
@@ -260,6 +269,9 @@ architecture rtl of T80 is
 	signal ss_regaddr           : std_logic_vector(2 downto 0);
 	signal ss_regdoh            : std_logic_vector(7 downto 0);
 	signal ss_regdol            : std_logic_vector(7 downto 0);
+	-- savestate restore: regfile write-port drive (combinational off ss_wr/ss_idx)
+	signal ss_regweh            : std_logic;
+	signal ss_regwel            : std_logic;
 
 begin
 
@@ -713,9 +725,42 @@ begin
 				end case;
 			end if;
 
+		end if;  -- ClkEn
+
+		-- ==== SAVESTATE RESTORE (scalars), CEN-independent, additive ====
+		-- Write the scalar architectural state directly on the ss_wr strobe.
+		-- Placed outside the ClkEn guard so a single host strobe lands regardless
+		-- of the clock-enable phase, and after every normal drive so it wins any
+		-- (never-occurring) clash. The interrupt/halt latches and MCycle/TState
+		-- live in the state-machine process and are restored there.
+		if ss_wr = '1' then
+			case ss_idx is
+				when "00000" => ACC <= ss_din;
+				when "00001" => F   <= ss_din;
+				when "00010" => Ap  <= ss_din;
+				when "00011" => Fp  <= ss_din;
+				when "00100" => I   <= ss_din;
+				when "00101" => R   <= unsigned(ss_din);
+				when "00110" => SP(7 downto 0)  <= unsigned(ss_din);
+				when "00111" => SP(15 downto 8) <= unsigned(ss_din);
+				when "01000" => PC(7 downto 0)  <= unsigned(ss_din);
+				when "01001" => PC(15 downto 8) <= unsigned(ss_din);
+				when "01010" =>
+					IStatus   <= ss_din(5 downto 4);  -- persistent IM (not IMode)
+					Alternate <= ss_din(2);
+				when others => null;                  -- 16..31 -> regfile port
+			end case;
 		end if;
 
+		-- While ss_load is held, park the address bus on the restored PC so the
+		-- core sits at the M1/T1 fetch boundary (ss_bndry='1') and the first fetch
+		-- after release reads from the restored PC. (MCycle/TState forced in the
+		-- state-machine process.)
+		if ss_load = '1' then
+			A <= std_logic_vector(PC);
 		end if;
+
+		end if;  -- CLK edge
 
 	end process;
 
@@ -857,11 +902,19 @@ begin
 			DOCL => RegBusC(7 downto 0),
 			AddrD => ss_regaddr,
 			DODH => ss_regdoh,
-			DODL => ss_regdol);
+			DODL => ss_regdol,
+			SSWEH => ss_regweh,
+			SSWEL => ss_regwel,
+			SSDIH => ss_din,
+			SSDIL => ss_din);
 
 	-- Savestate read-out (combinational, purely additive -- no effect on CPU
 	-- operation). ss_idx selects one state byte; the regfile occupies 16..31.
+	-- AddrD doubles as the restore write address (idx 16..31 -> pair ss_idx(3:1)).
 	ss_regaddr <= ss_idx(3 downto 1);
+	-- Restore regfile write: only for idx>=16, half chosen by ss_idx(0).
+	ss_regweh  <= ss_wr and ss_idx(4) and not ss_idx(0);
+	ss_regwel  <= ss_wr and ss_idx(4) and     ss_idx(0);
 	ss_bndry   <= '1' when MCycle = "001" and TState = "001" else '0';
 	process (ss_idx, ACC, F, Ap, Fp, I, R, SP, PC, IMode, Halt, Alternate,
 	         IntE_FF1, IntE_FF2, ss_regdoh, ss_regdol)
@@ -1106,8 +1159,31 @@ begin
 			if TState = 0 then
 				M1_n <= '0';
 			end if;
+			end if;  -- CEN
+
+			-- ==== SAVESTATE RESTORE (interrupt/halt latches), CEN-independent ====
+			-- IntE_FF1/IntE_FF2/Halt_FF live in this process; restore them from the
+			-- packed byte 10 on the ss_wr strobe. (IStatus/Alternate restored in the
+			-- register process; IMode/Halt are MCode outputs and re-derive from IR.)
+			if ss_wr = '1' and ss_idx = "01010" then
+				IntE_FF1 <= ss_din(0);
+				IntE_FF2 <= ss_din(1);
+				Halt_FF  <= ss_din(3);
 			end if;
-		end if;
+
+			-- While ss_load is held, park the sequencer exactly at the M1/T1 fetch
+			-- boundary so ss_bndry='1' and the next fetch (on release) reads the
+			-- restored PC. CEN-independent so the park holds however the host pauses.
+			if ss_load = '1' then
+				MCycle   <= "001";
+				TState   <= "001";
+				IntCycle <= '0';
+				NMICycle <= '0';
+				BusAck   <= '0';
+				M1_n     <= '0';
+			end if;
+
+		end if;  -- CLK edge
 	end process;
 
 	process (IntCycle, NMICycle, MCycle)

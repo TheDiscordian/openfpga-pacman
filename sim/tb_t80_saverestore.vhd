@@ -107,30 +107,55 @@ architecture sim of tb_t80_saverestore is
   -- touch the alternate set; LD IX/IY define the last regfile pair.
   ----------------------------------------------------------------------------
   type mem_t is array(0 to 4095) of std_logic_vector(7 downto 0);
+  -- Every architectural register that can land in the snapshot is given a DEFINED
+  -- and NON-DEFAULT value, so a dropped restore of any one of them is detectable
+  -- (a value that happens to equal the reset default -- e.g. Fp left at 0xFF, IFF
+  -- left at 0, Alternate left at 0 -- would silently pass). Concretely:
+  --   * Fp gets defined flags from OR $99 (not the reset 0xFF) via EX AF,AF'.
+  --   * EI sets IFF1/IFF2 = 1 (reset 0).
+  --   * the setup ends with the alternate bank selected (Alternate = 1, reset 0).
+  -- The boundary loop then stores bank-selected and AF' registers to RAM so the
+  -- bus trace also depends on Alternate / the alt bank / Ap.
   constant PROG : mem_t := (
-    -- ---- main set ----
-     0 => x"31",  1 => x"34",  2 => x"12",        -- LD SP,$1234
-     3 => x"01",  4 => x"78",  5 => x"56",        -- LD BC,$5678
-     6 => x"11",  7 => x"BC",  8 => x"9A",        -- LD DE,$9ABC
-     9 => x"21", 10 => x"F0", 11 => x"DE",        -- LD HL,$DEF0
-    12 => x"3E", 13 => x"42",                     -- LD A,$42
-    14 => x"0C",                                  -- INC C        -> C=$79
-    15 => x"04",                                  -- INC B        -> B=$57
-    -- ---- alternate set: swap, load junk, swap back so BC'/DE'/HL' are defined
-    16 => x"D9",                                  -- EXX          (main<->alt GP)
-    17 => x"01", 18 => x"11", 19 => x"22",        -- LD BC,$2211  (into BC')
-    20 => x"11", 21 => x"33", 22 => x"44",        -- LD DE,$4433  (into DE')
-    23 => x"21", 24 => x"55", 25 => x"66",        -- LD HL,$6655  (into HL')
-    26 => x"D9",                                  -- EXX          (back to main)
-    27 => x"08",                                  -- EX AF,AF'    (define A'/F')
-    28 => x"3E", 29 => x"99",                     -- LD A,$99     (into A')
-    30 => x"08",                                  -- EX AF,AF'    (back; A'=$99)
-    -- ---- index registers: define both index-register regfile pairs so NO
-    --      snapshot byte is ever 'U'/'X' (a restore must write legal data).
-    31 => x"DD", 32 => x"21", 33 => x"EF", 34 => x"BE", -- LD IX,$BEEF
-    35 => x"FD", 36 => x"21", 37 => x"0D", 38 => x"F0", -- LD IY,$F00D
-    -- ---- spin so we sit on a stable instruction-fetch boundary ----
-    39 => x"18", 40 => x"FE",                     -- JR -2  (spin on self @ $27)
+    -- ---- fully define BOTH AF and AF' with non-0xFF flags (even # of EX AF,AF'
+    --      so the MAIN bank is active at the snapshot):
+    --      end state ACC=$5A F=flags(OR$5A) ; Ap=$99 Fp=flags(OR$99) ----
+    16#00# => x"3E", 16#01# => x"5A",             -- LD A,$5A
+    16#02# => x"B7",                              -- OR A        (main F defined)
+    16#03# => x"08",                              -- EX AF,AF'   (stash into AF')
+    16#04# => x"3E", 16#05# => x"99",             -- LD A,$99
+    16#06# => x"B7",                              -- OR A        (alt F defined)
+    16#07# => x"08",                              -- EX AF,AF'   (back; Ap=$99,Fp=def)
+    -- ---- main 16-bit regs ----
+    16#0A# => x"31", 16#0B# => x"34", 16#0C# => x"12",  -- LD SP,$1234
+    16#0D# => x"01", 16#0E# => x"78", 16#0F# => x"56",  -- LD BC,$5678
+    16#10# => x"11", 16#11# => x"BC", 16#12# => x"9A",  -- LD DE,$9ABC
+    16#13# => x"21", 16#14# => x"F0", 16#15# => x"DE",  -- LD HL,$DEF0
+    16#16# => x"DD", 16#17# => x"21", 16#18# => x"EF", 16#19# => x"BE", -- LD IX,$BEEF
+    16#1A# => x"FD", 16#1B# => x"21", 16#1C# => x"0D", 16#1D# => x"F0", -- LD IY,$F00D
+    -- ---- I register (non-zero so a dropped I restore is caught; reset I=0) ----
+    16#1E# => x"3E", 16#1F# => x"3F",             -- LD A,$3F
+    16#20# => x"ED", 16#21# => x"47",             -- LD I,A      (I=$3F)
+    16#22# => x"FB",                              -- EI          (IFF1=IFF2=1)
+    -- ---- define the alternate GP bank, then LEAVE it selected (Alternate=1) ----
+    16#23# => x"D9",                              -- EXX         (to alt bank)
+    16#24# => x"01", 16#25# => x"11", 16#26# => x"22",  -- LD BC,$2211 (BC')
+    16#27# => x"11", 16#28# => x"33", 16#29# => x"44",  -- LD DE,$4433 (DE')
+    16#2A# => x"21", 16#2B# => x"55", 16#2C# => x"66",  -- LD HL,$6655 (HL')
+    --   (NO second EXX: stay in the alternate bank so Alternate=1 at the snapshot)
+    16#2D# => x"C3", 16#2E# => x"50", 16#2F# => x"01",  -- JP $0150 (boundary PCh!=0)
+    -- ---- boundary loop @ $0150 (PCh=0x01 so a dropped PC-high restore is caught,
+    --      which a loop at PCh=0x00 would hide). Exercises Alternate (LD A,B reads
+    --      the bank-selected B), Ap (EX AF,AF'), ACC and F on the bus each pass. ----
+    16#150# => x"78",                              -- LD A,B      (bank-selected B)
+    16#151# => x"32", 16#152# => x"00", 16#153# => x"08", -- LD ($0800),A
+    16#154# => x"08",                              -- EX AF,AF'   (Ap -> A)
+    16#155# => x"32", 16#156# => x"01", 16#157# => x"08", -- LD ($0801),A
+    16#158# => x"08",                              -- EX AF,AF'   (back; A=ACC)
+    16#159# => x"32", 16#15A# => x"02", 16#15B# => x"08", -- LD ($0802),A
+    16#15C# => x"F5",                              -- PUSH AF     (F -> bus via stack)
+    16#15D# => x"F1",                              -- POP AF
+    16#15E# => x"18", 16#15F# => x"F0",            -- JR -16      (loop to $0150)
     others => x"00");
 
   signal mem_a : mem_t := PROG;
@@ -170,7 +195,7 @@ architecture sim of tb_t80_saverestore is
   -- The SAVE boundary is the start of the spin-loop JR fetch. PC of the spin
   -- instruction is $0027. We snapshot when dut_a is fetching it.
   ----------------------------------------------------------------------------
-  constant SPIN_PC : integer := 16#0027#;
+  constant SPIN_PC : integer := 16#0150#;
 
 begin
 
@@ -268,6 +293,14 @@ begin
       wait for 1 ns;          -- let the combinational mux settle
     end procedure;
 
+    -- read one state byte back out of dut_b (combinational ss_dout)
+    procedure b_rd(i : integer) is
+    begin
+      b_ss_idx <= std_logic_vector(to_unsigned(i, 5));
+      wait until rising_edge(clk);
+      wait for 1 ns;
+    end procedure;
+
     -- write one snapshot byte into dut_b (single CEN-cycle strobe)
     procedure b_wr(i : integer; d : std_logic_vector(7 downto 0)) is
     begin
@@ -296,7 +329,8 @@ begin
     end loop;
 
     assert (a_ss_bndry = '1') and (unsigned(a_A) = SPIN_PC)
-      report "FAIL: dut_a never reached the spin boundary at PC=0x0027"
+      report "FAIL: dut_a never reached the spin boundary at PC=0x" &
+             to_hstring(std_logic_vector(to_unsigned(SPIN_PC, 16)))
       severity failure;
 
     -- FREEZE dut_a at this exact boundary by dropping its clock-enable. This
@@ -333,9 +367,30 @@ begin
 
     -- Sanity-check dut_b landed on the restored boundary.
     assert (b_ss_bndry = '1') and (unsigned(b_A) = SPIN_PC)
-      report "FAIL: dut_b not parked at PC=0x0027 after restore (got 0x"
-             & to_hstring(b_A) & ")"
+      report "FAIL: dut_b not parked at restored PC after restore (got 0x"
+             & to_hstring(b_A) & ", expected 0x"
+             & to_hstring(std_logic_vector(to_unsigned(SPIN_PC, 16))) & ")"
       severity failure;
+
+    -- Structural readback: every scalar/regfile byte read back out of dut_b must
+    -- equal the snapshot. This is the cheap check that catches a dropped or
+    -- mis-packed restore of bytes the bus trace can be blind to (Ap/Fp and the
+    -- byte-10 flags: IM, Alternate, IFF2, IFF1, Halt). dut_b is still parked
+    -- (ss_load high) so the read-out is stable. NOTE byte-10 bits 5:4 read back
+    -- the live IMode (re-derived from the parked JR opcode), which equals dut_a's
+    -- IMode at the same boundary, so the whole byte compares equal here.
+    for i in 0 to 31 loop
+      if i /= 11 and i /= 12 and i /= 13 and i /= 14 and i /= 15 then  -- skip map gaps
+        b_rd(i);
+        assert b_ss_dout = snap(i)
+          report "FAIL: dut_b readback mismatch at idx " & integer'image(i) &
+                 " got 0x" & to_hstring(b_ss_dout) &
+                 " expected 0x" & to_hstring(snap(i))
+          severity failure;
+      end if;
+    end loop;
+    b_ss_idx <= (others => '0');
+    report "Readback: all restored bytes match the snapshot" severity note;
 
     ----------------------------------------- Phase 3: capture + align two traces
     -- Run BOTH cores freely and record each one's external-bus sequence. The

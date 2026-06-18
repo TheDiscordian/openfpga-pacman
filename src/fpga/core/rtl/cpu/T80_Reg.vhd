@@ -70,10 +70,17 @@ entity T80_Reg is
 		DOBL		: out std_logic_vector(7 downto 0);
 		DOCH		: out std_logic_vector(7 downto 0);
 		DOCL		: out std_logic_vector(7 downto 0);
-		-- savestate dump: read-only 4th port, walks indices 0..7 while paused
+		-- savestate dump: 4th port. Read (DODH/DODL via AddrD) drives the export;
+		-- the same AddrD plus SSWE*/SSDI* form the restore write path. The SS write
+		-- is NOT gated by CEN so a single strobe lands one byte regardless of the
+		-- clock-enable phase; the core only asserts SSWE* during a restore.
 		AddrD		: in std_logic_vector(2 downto 0) := (others => '0');
 		DODH		: out std_logic_vector(7 downto 0);
-		DODL		: out std_logic_vector(7 downto 0)
+		DODL		: out std_logic_vector(7 downto 0);
+		SSWEH		: in std_logic := '0';
+		SSWEL		: in std_logic := '0';
+		SSDIH		: in std_logic_vector(7 downto 0) := (others => '0');
+		SSDIL		: in std_logic_vector(7 downto 0) := (others => '0')
 	);
 end T80_Reg;
 
@@ -95,6 +102,16 @@ begin
 				if WEL = '1' then
 					RegsL(to_integer(unsigned(AddrA))) <= DIL;
 				end if;
+			end if;
+			-- savestate restore write port (CEN-independent). AddrD selects the
+			-- pair, SSWEH/SSWEL select the half. Placed after the normal write so
+			-- a restore is authoritative on any clash (never happens in practice:
+			-- the core only asserts SSWE* while paused for a restore).
+			if SSWEH = '1' then
+				RegsH(to_integer(unsigned(AddrD))) <= SSDIH;
+			end if;
+			if SSWEL = '1' then
+				RegsL(to_integer(unsigned(AddrD))) <= SSDIL;
 			end if;
 		end if;
 	end process;

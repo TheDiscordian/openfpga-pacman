@@ -107,6 +107,10 @@ port
 	ss_cpu_idx      : in  std_logic_vector(4 downto 0) := (others => '0');
 	ss_cpu_dout     : out std_logic_vector(7 downto 0);
 	ss_cpu_bndry    : out std_logic;
+	-- savestate CPU register restore (into the T80)
+	ss_cpu_din      : in  std_logic_vector(7 downto 0) := (others => '0');
+	ss_cpu_wr       : in  std_logic := '0';
+	ss_cpu_load     : in  std_logic := '0';
 
 	--
 	RESET      : in  std_logic;
@@ -349,7 +353,10 @@ port map (
 	DO      => cpu_data_out,
 	ss_idx   => ss_cpu_idx,
 	ss_dout  => ss_cpu_dout,
-	ss_bndry => ss_cpu_bndry
+	ss_bndry => ss_cpu_bndry,
+	ss_din   => ss_cpu_din,
+	ss_wr    => ss_cpu_wr,
+	ss_load  => ss_cpu_load
 );
 
 --
