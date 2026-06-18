@@ -752,6 +752,15 @@ mf_pllbase mp1 (
     wire [7:0]  hs_din, hs_dout;
     wire        hs_wen, hs_rd, hs_wr_acc, hs_pause;
 
+    // Pause the core while the Pocket menu / sleep overlay is up. osnotify_inmenu
+    // is in the clk_74a bridge domain; 2-FF sync into clk_sys and OR it into the
+    // core pause so the game freezes instead of advancing unseen behind the menu
+    // (and is quiescent for the high-score flush on sleep).
+    reg [1:0] inmenu_sync = 2'd0;
+    always @(posedge clk_sys) inmenu_sync <= {inmenu_sync[0], osnotify_inmenu};
+    wire menu_pause = inmenu_sync[1];
+    wire core_pause = hs_pause | menu_pause;
+
     data_loader #(.ADDRESS_MASK_UPPER_4 (4'h2), .ADDRESS_SIZE (4), .OUTPUT_WORD_SIZE (1)) save_loader (
         .clk_74a (clk_74a), .clk_memory (clk_sys),
         .bridge_wr (bridge_wr), .bridge_endian_little (bridge_endian_little),
