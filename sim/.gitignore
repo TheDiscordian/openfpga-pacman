@@ -1,2 +1,6 @@
 *.vvp
 *.vcd
+# Intel altera_mf sim_lib (altsyncram model) -- auto-extracted from the cached
+# raetro/quartus:21.1 image by run_savestate_e2e.sh; kept OUT of the BSD tree
+# (Intel-licensed, build-time test dep only, same policy as _upstream/).
+altera_mf/
