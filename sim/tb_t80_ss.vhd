@@ -29,7 +29,7 @@ architecture sim of tb_t80_ss is
      9 => x"21", 10 => x"F0", 11 => x"DE",   -- LD HL,$DEF0
     12 => x"3E", 13 => x"42",                -- LD A,$42
     14 => x"0C",                             -- INC C  -> C=$79
-    15 => x"18", 16 => x"FD",                -- JR -3  (spin on self at $0F)
+    15 => x"76",                             -- HALT   (settle; no scratch churn)
     others => x"00");
 begin
   dut : entity work.T80sed
@@ -79,23 +79,26 @@ begin
              to_hstring(ss_dout);
     end loop;
 
-    rd(0);
-    assert unsigned(ss_dout) = 16#42#
-      report "FAIL: ACC expected 0x42 got 0x" & to_hstring(ss_dout) severity error;
-    if unsigned(ss_dout) /= 16#42# then ok := false; end if;
-
-    rd(6);
-    assert unsigned(ss_dout) = 16#34#
-      report "FAIL: SP lo expected 0x34 got 0x" & to_hstring(ss_dout) severity error;
-    if unsigned(ss_dout) /= 16#34# then ok := false; end if;
-
-    rd(7);
-    assert unsigned(ss_dout) = 16#12#
-      report "FAIL: SP hi expected 0x12 got 0x" & to_hstring(ss_dout) severity error;
-    if unsigned(ss_dout) /= 16#12# then ok := false; end if;
+    -- Expected post-program state: A=42, SP=1234, PC=0010 (HALT@$0F+1),
+    -- BC=5679 (INC C), DE=9ABC, HL=DEF0. Regfile: 16/17=B/C, 18/19=D/E, 20/21=H/L.
+    check : for k in 0 to 10 loop
+      case k is
+        when 0  => rd(0);  if unsigned(ss_dout) /= 16#42# then ok := false; report "FAIL ACC=0x"  & to_hstring(ss_dout) severity error; end if;
+        when 1  => rd(6);  if unsigned(ss_dout) /= 16#34# then ok := false; report "FAIL SPl=0x"  & to_hstring(ss_dout) severity error; end if;
+        when 2  => rd(7);  if unsigned(ss_dout) /= 16#12# then ok := false; report "FAIL SPh=0x"  & to_hstring(ss_dout) severity error; end if;
+        when 3  => rd(8);  if unsigned(ss_dout) /= 16#10# then ok := false; report "FAIL PCl=0x"  & to_hstring(ss_dout) severity error; end if;
+        when 4  => rd(16); if unsigned(ss_dout) /= 16#56# then ok := false; report "FAIL B=0x"    & to_hstring(ss_dout) severity error; end if;
+        when 5  => rd(17); if unsigned(ss_dout) /= 16#79# then ok := false; report "FAIL C=0x"    & to_hstring(ss_dout) severity error; end if;
+        when 6  => rd(18); if unsigned(ss_dout) /= 16#9A# then ok := false; report "FAIL D=0x"    & to_hstring(ss_dout) severity error; end if;
+        when 7  => rd(19); if unsigned(ss_dout) /= 16#BC# then ok := false; report "FAIL E=0x"    & to_hstring(ss_dout) severity error; end if;
+        when 8  => rd(20); if unsigned(ss_dout) /= 16#DE# then ok := false; report "FAIL H=0x"    & to_hstring(ss_dout) severity error; end if;
+        when 9  => rd(21); if unsigned(ss_dout) /= 16#F0# then ok := false; report "FAIL L=0x"    & to_hstring(ss_dout) severity error; end if;
+        when 10 => null;
+      end case;
+    end loop;
 
     if ok then
-      report "EXPORT-OK: ACC + SP read back correctly via ss bus" severity note;
+      report "EXPORT-OK: all registers (A/BC/DE/HL/SP/PC) read back correctly via ss bus" severity note;
     else
       report "EXPORT-FAIL" severity error;
     end if;
