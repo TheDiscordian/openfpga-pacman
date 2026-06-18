@@ -7,13 +7,19 @@ still 0 — see Status).
 
 ## Status
 
-**Not implemented.** The APF host-side handshake is already present and wired
-(`core_top.v` ↔ `apf/core_bridge_cmd.v`), but every `savestate_*` input the core is
-meant to drive is undriven, so `savestate_supported` floats to 0 and the Pocket
-reports "no save states". Nothing behind the handshake exists yet. We do **not**
-flip `savestate_supported` to 1 until a full, on-device-validated save+restore round
-works — a half-built state blob that restores RAM but not the CPU just crashes on
-load.
+**In progress on `feat/savestates`, dormant (`savestate_supported = 0`).**
+
+- **Stage 2 transport + RAM — landed (dormant).** `core_top.v` now drives the
+  `savestate_*` handshake, exposes a 4 KB bridge buffer at `SS_ADDR` (window `0x4`)
+  via a `data_loader`/`data_unloader` pair, and runs a serialise FSM that
+  snapshots / restores the 4 KB main work RAM through the hiscore tap (muxed). It
+  synthesises but is **dormant**: `SS_SUPPORTED = 0`, so the Pocket never invokes
+  it. RAM-only restore is incoherent on its own, so we keep it off.
+- **Stage 1 CPU — not started.** This is the gate (see below). Until the Z80
+  register state is captured and an on-device save→reload→continue pass validates,
+  `SS_SUPPORTED` stays 0.
+
+The original APF handshake was present but undriven; Stage 2 wired it up.
 
 ## How the Pocket save-state API works
 
@@ -80,6 +86,25 @@ and back in at an instruction boundary. Two routes:
 2. **Add register dump/restore to our T80** — touch `T80.vhd` + `T80_Reg.vhd` to
    surface the register file and the AF/working/alt set. Smaller diff, but modifying
    a 20-year-old hand-tuned core is its own correctness risk.
+
+### What route 2 actually touches (concrete)
+
+- `T80_Reg.vhd` — the register file is `RegsH`/`RegsL`, **8 × 16-bit** (indices 0–7,
+  the BC/DE/HL/WZ + alternate set). It already has three read address ports
+  (`AddrA/B/C`) and a write port (`AddrA`+`WEH`/`WEL`). Add a 4th access path: a
+  savestate address + write-enable that, while the CPU is paused, walks indices 0–7
+  to read all 16 bytes out and write them back in. 16 bytes.
+- `T80.vhd` — the scalar state that is *not* in the register file: `ACC` (A), the
+  flag bits (`F`), the alternate `Ap`/`Fp`, `I`, `R`, `IM`, `IFF1`/`IFF2`, `PC`, `SP`,
+  and `IX`/`IY` (confirm whether these live in the regfile or as their own signals).
+  Each needs a read-out and a load-when-paused path. ~12 bytes.
+- Snapshot only at an **instruction boundary** (`M1`/`MCycle` idle) with the CPU
+  paused, or the captured micro-sequencer state is inconsistent on restore. The
+  existing `pause` already freezes the CPU; the FSM must additionally wait for the
+  fetch boundary before sampling.
+
+This is exactly the surface a ported savestate-T80 (route 1) already solves, which is
+why route 1 is recommended despite being the bigger drop-in.
 
 ## Staged plan (one PR each)
 

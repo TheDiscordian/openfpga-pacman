@@ -751,6 +751,11 @@ mf_pllbase mp1 (
     wire [11:0] hs_addr;
     wire [7:0]  hs_din, hs_dout;
     wire        hs_wen, hs_rd, hs_wr_acc, hs_pause;
+    // hiscore drives its own copy of the work-RAM tap; the savestate FSM (below)
+    // muxes onto the same physical tap into PACMAN when a save/load is in progress.
+    wire [11:0] hsi_addr;
+    wire [7:0]  hsi_din;
+    wire        hsi_wen, hsi_rd, hsi_wr_acc, hsi_pause;
 
     data_loader #(.ADDRESS_MASK_UPPER_4 (4'h2), .ADDRESS_SIZE (4), .OUTPUT_WORD_SIZE (1)) save_loader (
         .clk_74a (clk_74a), .clk_memory (clk_sys),
@@ -766,12 +771,148 @@ mf_pllbase mp1 (
     );
     hiscore hi (
         .clk (clk_sys), .ce (ce_6m), .reset (core_reset), .loaded (dl_complete_s), .vbl (core_vblank),
-        .hs_address (hs_addr), .hs_data_in (hs_din), .hs_data_out (hs_dout),
-        .hs_write_enable (hs_wen), .hs_access_read (hs_rd), .hs_access_write (hs_wr_acc),
-        .pause (hs_pause),
+        .hs_address (hsi_addr), .hs_data_in (hsi_din), .hs_data_out (hs_dout),
+        .hs_write_enable (hsi_wen), .hs_access_read (hsi_rd), .hs_access_write (hsi_wr_acc),
+        .pause (hsi_pause),
         .sv_wr (hs_sv_wr), .sv_wr_addr (hs_sv_wr_addr), .sv_wr_data (hs_sv_wr_data),
         .sv_rd_addr (hs_sv_rd_addr), .sv_rd_data (hs_sv_rd_data)
     );
+
+    // ===================================================================
+    // Save states (feat/savestates) -- WORK IN PROGRESS, UNTESTED ON DEVICE
+    // -------------------------------------------------------------------
+    // Stage 2 transport: snapshot / restore the 4 KB main work RAM through the
+    // same hiscore tap (muxed below), staged in a bridge buffer at SS_ADDR. The
+    // CPU register file and the I/O latches are NOT captured yet, so a restore
+    // would be incoherent -- SS_SUPPORTED stays 0 and the Pocket will not invoke
+    // any of this until the T80 savestate port lands (Stage 1) and an on-device
+    // save/reload pass validates. The logic below synthesises but is dormant.
+    // See SAVESTATES.md.
+    // ===================================================================
+    localparam        SS_SUPPORTED = 1'b0;          // -> 1 only after on-device validation
+    localparam [31:0] SS_ADDR      = 32'h40000000;  // bridge window 0x4
+    localparam [12:0] SS_BYTES     = 13'd4096;      // main RAM today; grows with CPU + latches
+
+    assign savestate_supported   = SS_SUPPORTED;
+    assign savestate_addr        = SS_ADDR;
+    assign savestate_size        = {19'd0, SS_BYTES};
+    assign savestate_maxloadsize = {19'd0, SS_BYTES};
+
+    // Bridge <-> savestate buffer. data_loader writes it on load; data_unloader
+    // reads it on save (mutually exclusive, so one bridge port suffices).
+    wire        ssb_ld_we;
+    wire [11:0] ssb_ld_addr;
+    wire [7:0]  ssb_ld_data;
+    wire [11:0] ssb_ul_addr;
+    wire [7:0]  ssb_ul_data;
+    wire [31:0] ss_rd_data;
+    data_loader #(.ADDRESS_MASK_UPPER_4 (4'h4), .ADDRESS_SIZE (12), .OUTPUT_WORD_SIZE (1)) ss_loader (
+        .clk_74a (clk_74a), .clk_memory (clk_sys),
+        .bridge_wr (bridge_wr), .bridge_endian_little (bridge_endian_little),
+        .bridge_addr (bridge_addr), .bridge_wr_data (bridge_wr_data),
+        .write_en (ssb_ld_we), .write_addr (ssb_ld_addr), .write_data (ssb_ld_data)
+    );
+    data_unloader #(.ADDRESS_MASK_UPPER_4 (4'h4), .ADDRESS_SIZE (12), .READ_MEM_CLOCK_DELAY (4), .INPUT_WORD_SIZE (1)) ss_unloader (
+        .clk_74a (clk_74a), .clk_memory (clk_sys),
+        .bridge_rd (bridge_rd), .bridge_endian_little (bridge_endian_little),
+        .bridge_addr (bridge_addr), .bridge_rd_data (ss_rd_data),
+        .read_en (), .read_addr (ssb_ul_addr), .read_data (ssb_ul_data)
+    );
+
+    // True dual-port state buffer (port A = serialise FSM, port B = bridge).
+    reg  [7:0]  ss_buf [0:4095];
+    reg  [11:0] ssa_addr;
+    reg  [7:0]  ssa_wdata;
+    reg         ssa_we;
+    reg  [7:0]  ssa_rdata;
+    reg  [7:0]  ssb_rdata;
+    always @(posedge clk_sys) begin
+        if (ssa_we)    ss_buf[ssa_addr]    <= ssa_wdata;   // FSM write (save capture)
+        ssa_rdata <= ss_buf[ssa_addr];                     // FSM read  (load)
+        if (ssb_ld_we) ss_buf[ssb_ld_addr] <= ssb_ld_data; // bridge write (load in)
+        ssb_rdata <= ss_buf[ssb_ul_addr];                  // bridge read  (save out)
+    end
+    assign ssb_ul_data = ssb_rdata;
+
+    // start/load pulses cross from the clk_74a bridge into clk_sys.
+    reg [2:0] ss_start_sr = 3'd0, ss_load_sr = 3'd0;
+    always @(posedge clk_sys) begin
+        ss_start_sr <= {ss_start_sr[1:0], savestate_start};
+        ss_load_sr  <= {ss_load_sr[1:0],  savestate_load};
+    end
+    wire ss_start_rise = (ss_start_sr[2:1] == 2'b01);
+    wire ss_load_rise  = (ss_load_sr[2:1]  == 2'b01);
+
+    localparam SS_IDLE=3'd0, SS_SV0=3'd1, SS_SV1=3'd2, SS_LD0=3'd3, SS_LD1=3'd4, SS_FIN=3'd5;
+    reg  [2:0]  ss_st = SS_IDLE;
+    reg  [12:0] ss_cnt;
+    reg         ss_busy_cs = 1'b0, ss_ok_cs = 1'b0;
+    reg         ss_pause_o, ss_rd_o, ss_wr_o, ss_wen_o;
+    reg  [11:0] ss_addr_o;
+    reg  [7:0]  ss_din_o;
+    wire        ss_active = (ss_st != SS_IDLE);
+    always @(posedge clk_sys) begin
+        ss_rd_o <= 1'b0; ss_wr_o <= 1'b0; ss_wen_o <= 1'b0; ssa_we <= 1'b0;
+        case (ss_st)
+        SS_IDLE: begin
+            ss_pause_o <= 1'b0;
+            if (ss_start_rise) begin
+                ss_st <= SS_SV0; ss_cnt <= 13'd0;
+                ss_busy_cs <= 1'b1; ss_ok_cs <= 1'b0; ss_pause_o <= 1'b1;
+            end else if (ss_load_rise) begin
+                ss_st <= SS_LD0; ss_cnt <= 13'd0;
+                ss_busy_cs <= 1'b1; ss_ok_cs <= 1'b0; ss_pause_o <= 1'b1;
+            end
+        end
+        SS_SV0: begin                                   // present RAM read address
+            ss_addr_o <= ss_cnt[11:0]; ss_rd_o <= 1'b1;
+            ss_st <= SS_SV1;
+        end
+        SS_SV1: begin                                   // capture tap output into buffer
+            ssa_addr <= ss_cnt[11:0]; ssa_wdata <= hs_dout; ssa_we <= 1'b1;
+            if (ss_cnt == SS_BYTES - 1) ss_st <= SS_FIN;
+            else begin ss_cnt <= ss_cnt + 13'd1; ss_st <= SS_SV0; end
+        end
+        SS_LD0: begin                                   // present buffer read address
+            ssa_addr <= ss_cnt[11:0];
+            ss_st <= SS_LD1;
+        end
+        SS_LD1: begin                                   // write buffer byte back into RAM
+            ss_addr_o <= ss_cnt[11:0]; ss_din_o <= ssa_rdata;
+            ss_wen_o <= 1'b1; ss_wr_o <= 1'b1;
+            if (ss_cnt == SS_BYTES - 1) ss_st <= SS_FIN;
+            else begin ss_cnt <= ss_cnt + 13'd1; ss_st <= SS_LD0; end
+        end
+        SS_FIN: begin
+            ss_busy_cs <= 1'b0; ss_ok_cs <= 1'b1; ss_pause_o <= 1'b0;
+            ss_st <= SS_IDLE;
+        end
+        endcase
+    end
+
+    // tap mux: savestate FSM owns the tap while active, else hiscore does.
+    assign hs_addr   = ss_active ? ss_addr_o : hsi_addr;
+    assign hs_din    = ss_active ? ss_din_o  : hsi_din;
+    assign hs_wen    = ss_active ? ss_wen_o  : hsi_wen;
+    assign hs_rd     = ss_active ? ss_rd_o   : hsi_rd;
+    assign hs_wr_acc = ss_active ? ss_wr_o   : hsi_wr_acc;
+    assign hs_pause  = hsi_pause | ss_pause_o;
+
+    // status back to the clk_74a bridge (slow levels; one op at a time, so the
+    // same busy/ok feed both the save and load query paths).
+    reg [2:0] ss_busy_74 = 3'd0, ss_ok_74 = 3'd0;
+    always @(posedge clk_74a) begin
+        ss_busy_74 <= {ss_busy_74[1:0], ss_busy_cs};
+        ss_ok_74   <= {ss_ok_74[1:0],   ss_ok_cs};
+    end
+    assign savestate_start_ack  = ss_busy_74[2] | ss_ok_74[2];
+    assign savestate_start_busy = ss_busy_74[2];
+    assign savestate_start_ok   = ss_ok_74[2];
+    assign savestate_start_err  = 1'b0;
+    assign savestate_load_ack   = ss_busy_74[2] | ss_ok_74[2];
+    assign savestate_load_busy  = ss_busy_74[2];
+    assign savestate_load_ok    = ss_ok_74[2];
+    assign savestate_load_err   = 1'b0;
 
     // Continuously report the save slot's size so the Pocket reads back 4 bytes
     // on flush (data_slots index 2 = Game, ROM, Save -> size word at 2*2+1 = 5).
