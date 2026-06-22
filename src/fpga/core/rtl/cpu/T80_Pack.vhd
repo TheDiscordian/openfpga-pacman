@@ -95,7 +95,13 @@ package T80_Pack is
 		TS                      : out std_logic_vector(2 downto 0);
 		IntCycle_n      : out std_logic;
 		IntE            : out std_logic;
-		Stop            : out std_logic
+		Stop            : out std_logic;
+		ss_idx          : in  std_logic_vector(4 downto 0) := (others => '0');
+		ss_dout         : out std_logic_vector(7 downto 0);
+		ss_bndry        : out std_logic;
+		ss_din          : in  std_logic_vector(7 downto 0) := (others => '0');
+		ss_wr           : in  std_logic := '0';
+		ss_load         : in  std_logic := '0'
 	);
 	end component;
 
@@ -115,7 +121,14 @@ package T80_Pack is
 		DOBH            : out std_logic_vector(7 downto 0);
 		DOBL            : out std_logic_vector(7 downto 0);
 		DOCH            : out std_logic_vector(7 downto 0);
-		DOCL            : out std_logic_vector(7 downto 0)
+		DOCL            : out std_logic_vector(7 downto 0);
+		AddrD           : in std_logic_vector(2 downto 0) := (others => '0');
+		DODH            : out std_logic_vector(7 downto 0);
+		DODL            : out std_logic_vector(7 downto 0);
+		SSWEH           : in std_logic := '0';
+		SSWEL           : in std_logic := '0';
+		SSDIH           : in std_logic_vector(7 downto 0) := (others => '0');
+		SSDIL           : in std_logic_vector(7 downto 0) := (others => '0')
 	);
 	end component;
 

@@ -103,6 +103,30 @@ port
 	hs_access_read  : in  std_logic;
 	hs_access_write : in  std_logic;
 
+	-- savestate CPU register read-out (from the T80)
+	ss_cpu_idx      : in  std_logic_vector(4 downto 0) := (others => '0');
+	ss_cpu_dout     : out std_logic_vector(7 downto 0);
+	ss_cpu_bndry    : out std_logic;
+	-- savestate CPU register restore (into the T80)
+	ss_cpu_din      : in  std_logic_vector(7 downto 0) := (others => '0');
+	ss_cpu_wr       : in  std_logic := '0';
+	ss_cpu_load     : in  std_logic := '0';
+
+	-- savestate machine-state bus (timing/IRQ/control latches that live in this
+	-- module, NOT in the T80 and NOT in main RAM). ss_st_idx selects one byte:
+	--  0 hcnt[7:0] 1 hcnt[8] 2 vcnt[7:0] 3 vcnt[8] 4 control_reg 5 cpu_vec_reg
+	--  6 sync_bus_reg 7 watchdog_cnt 8 mcnt 9 mcnt2[7:0] 10 mcnt2[10:8]
+	--  11 flags1 {old_rd_l2(4),old_rd_l(3),dcnt(2:1),cpu_int_l(0)}
+	-- ss_freeze (=savestate walk active) holds every free-running timing/IRQ flop
+	-- so a SAVE is coherent with the M1/T1-parked CPU and a LOAD's restore is not
+	-- stomped by the next ena_6 edge. With ss_st_wr='0' and ss_freeze='0' the core
+	-- is bit-identical to stock.
+	ss_st_idx       : in  std_logic_vector(4 downto 0) := (others => '0');
+	ss_st_dout      : out std_logic_vector(7 downto 0);
+	ss_st_din       : in  std_logic_vector(7 downto 0) := (others => '0');
+	ss_st_wr        : in  std_logic := '0';
+	ss_freeze       : in  std_logic := '0';
+
 	--
 	RESET      : in  std_logic;
 	CLK        : in  std_logic;
@@ -232,7 +256,17 @@ begin
 p_hvcnt : process
 begin
 	wait until rising_edge(clk);
-	if (ena_6 = '1') then
+	-- savestate restore (top priority): hcnt/vcnt. Held while ss_freeze (walk) is
+	-- high so the restored value is not overwritten by the next ena_6 increment.
+	if ss_st_wr = '1' then
+		case ss_st_idx is
+			when "00000" => hcnt(7 downto 0) <= ss_st_din;
+			when "00001" => hcnt(8) <= ss_st_din(0);
+			when "00010" => vcnt(7 downto 0) <= ss_st_din;
+			when "00011" => vcnt(8) <= ss_st_din(0);
+			when others => null;
+		end case;
+	elsif (ena_6 = '1' and ss_freeze = '0') then
 		if hcnt = "111111111" then
 			hcnt <= "010000000"; -- 080
 		else
@@ -293,7 +327,17 @@ p_irq_req_watchdog : process
 	variable rising_vblank : boolean;
 begin
 	wait until rising_edge(clk);
-	if (ena_6 = '1') then
+	-- savestate restore (top priority): IRQ request latch + watchdog counter.
+	-- Held while ss_freeze (walk) is high; without the freeze the paused pause-zero
+	-- branch below would re-stomp watchdog_cnt every ena_6 edge and cpu_int_l would
+	-- drift off the frozen hcnt/vcnt -> the restore would be futile.
+	if ss_st_wr = '1' then
+		case ss_st_idx is
+			when "00111" => watchdog_cnt <= ss_st_din;       -- idx 7
+			when "01011" => cpu_int_l    <= ss_st_din(0);    -- idx 11 flags1 bit0
+			when others => null;
+		end case;
+	elsif (ena_6 = '1' and ss_freeze = '0') then
 		rising_vblank := (hcnt = "010101111") and (vcnt = "111101111"); -- AF and 1EF
 		-- interrupt 8c
 
@@ -326,7 +370,13 @@ u_cpu : work.T80sed
 port map (
 	RESET_n => watchdog_reset_l and (not reset),
 	CLK_n   => clk,
-	CLKEN   => hcnt(0) and ena_6,
+	-- ss_cpu_load (savestate walk) forces CLKEN low so the parked instruction's
+	-- register writeback / bus-control logic cannot re-execute. Without this the
+	-- CPU freeze depended on the frozen hcnt(0) parity (CLKEN = hcnt(0) and ena_6);
+	-- with hcnt held by ss_freeze that biased odd, re-running non-idempotent writes
+	-- (CPL/CCF/EX) thousands of times and mangling the captured registers. The
+	-- restore (ss_wr) and park (ss_load) are CEN-independent, so they still apply.
+	CLKEN   => hcnt(0) and ena_6 and not ss_cpu_load,
 	WAIT_n  => sync_bus_wreq_l and (not pause),
 	INT_n   => cpu_int_l or     mod_van,
 	NMI_n   => cpu_int_l or not mod_van,
@@ -341,7 +391,13 @@ port map (
 	BUSAK_n => open,
 	A       => cpu_addr,
 	DI      => cpu_data_in,
-	DO      => cpu_data_out
+	DO      => cpu_data_out,
+	ss_idx   => ss_cpu_idx,
+	ss_dout  => ss_cpu_dout,
+	ss_bndry => ss_cpu_bndry,
+	ss_din   => ss_cpu_din,
+	ss_wr    => ss_cpu_wr,
+	ss_load  => ss_cpu_load
 );
 
 --
@@ -359,7 +415,14 @@ sync_bus_r_w_l  <= '0' when sync_bus_stb  = '0' and cpu_rd_l = '1' else '1';
 p_sync_bus_reg : process
 begin
 	wait until rising_edge(clk);
-	if (ena_6 = '1') then
+	-- savestate restore (top priority): IM2 vector latch + sync-bus holding reg
+	if ss_st_wr = '1' then
+		case ss_st_idx is
+			when "00101" => cpu_vec_reg  <= ss_st_din;   -- idx 5
+			when "00110" => sync_bus_reg <= ss_st_din;   -- idx 6
+			when others => null;
+		end case;
+	elsif (ena_6 = '1' and ss_freeze = '0') then
 		-- register on sync bus module that is used to store interrupt vector
 		if (cpu_iorq_l = '0') and (cpu_m1_l = '1') then
 			cpu_vec_reg <= cpu_data_out;
@@ -514,7 +577,12 @@ begin
 	-- 7 coin counter
 
 	wait until rising_edge(clk);
-	if (ena_6 = '1') then
+	-- savestate restore (top priority): 74LS259 control latch (idx 4)
+	if ss_st_wr = '1' then
+		if ss_st_idx = "00100" then
+			control_reg <= ss_st_din;
+		end if;
+	elsif (ena_6 = '1' and ss_freeze = '0') then
 		if (watchdog_reset_l = '0') then
 			control_reg <= (others => '0');
 		elsif (iodec_out_l = '0') then
@@ -532,11 +600,22 @@ c_int  <= control_reg(2) when mod_alib = '1' else control_reg(1) when mod_bird =
 p_mcnt : process
 begin
 	wait until rising_edge(clk);
-	mcnt <= (mcnt + "1") + ("0000000" & (in0(3) xor in0(2) xor in0(1) xor in0(0)));
-	if (ena_6 = '1') then
-		old_rd_l2 <= cpu_rd_l;
-		if iodec_myst2_l = '0' and old_rd_l2 = '1' and cpu_rd_l = '0' then
-			mcnt2 <= mcnt2 + "1";
+	-- savestate restore (top priority): mystery/protection counters + rd edge flop
+	if ss_st_wr = '1' then
+		case ss_st_idx is
+			when "01000" => mcnt <= ss_st_din;                            -- idx 8
+			when "01001" => mcnt2(7 downto 0) <= ss_st_din;               -- idx 9
+			when "01010" => mcnt2(10 downto 8) <= ss_st_din(2 downto 0);  -- idx 10
+			when "01011" => old_rd_l2 <= ss_st_din(4);                    -- idx 11 flags1 bit4
+			when others => null;
+		end case;
+	elsif ss_freeze = '0' then
+		mcnt <= (mcnt + "1") + ("0000000" & (in0(3) xor in0(2) xor in0(1) xor in0(0)));
+		if (ena_6 = '1') then
+			old_rd_l2 <= cpu_rd_l;
+			if iodec_myst2_l = '0' and old_rd_l2 = '1' and cpu_rd_l = '0' then
+				mcnt2 <= mcnt2 + "1";
+			end if;
 		end if;
 	end if;
 end process;
@@ -597,22 +676,53 @@ port map
 eeek_decrypt : process
 begin
 	wait until rising_edge(clk);
-	if watchdog_reset_l = '0' then
-		if mod_eeek = '1' then
-			dcnt <= "01";
-		else
-			dcnt <= "10";
+	-- savestate restore (top priority): descramble counter + rd edge flop (idx 11)
+	if ss_st_wr = '1' then
+		if ss_st_idx = "01011" then
+			dcnt     <= ss_st_din(2 downto 1);
+			old_rd_l <= ss_st_din(3);
 		end if;
-	else
-		old_rd_l <= cpu_rd_l;
-		if old_rd_l = '1' and cpu_rd_l = '0' and cpu_iorq_l = '0' and cpu_m1_l = '1' then
-			if cpu_addr(0) = '1' then
-				dcnt <= dcnt - "1";
+	elsif ss_freeze = '0' then
+		if watchdog_reset_l = '0' then
+			if mod_eeek = '1' then
+				dcnt <= "01";
 			else
-				dcnt <= dcnt + "1";
+				dcnt <= "10";
+			end if;
+		else
+			old_rd_l <= cpu_rd_l;
+			if old_rd_l = '1' and cpu_rd_l = '0' and cpu_iorq_l = '0' and cpu_m1_l = '1' then
+				if cpu_addr(0) = '1' then
+					dcnt <= dcnt - "1";
+				else
+					dcnt <= dcnt + "1";
+				end if;
 			end if;
 		end if;
 	end if;
+end process;
+
+-- savestate read-out: ss_st_idx selects one machine-state byte for the FSM to
+-- capture. Combinational, purely additive (no effect on core operation).
+-- when others => 0 so no value infers a latch.
+p_ss_st_dout : process (ss_st_idx, hcnt, vcnt, control_reg, cpu_vec_reg,
+		sync_bus_reg, watchdog_cnt, mcnt, mcnt2, cpu_int_l, dcnt, old_rd_l, old_rd_l2)
+begin
+	case ss_st_idx is
+		when "00000" => ss_st_dout <= hcnt(7 downto 0);
+		when "00001" => ss_st_dout <= "0000000" & hcnt(8);
+		when "00010" => ss_st_dout <= vcnt(7 downto 0);
+		when "00011" => ss_st_dout <= "0000000" & vcnt(8);
+		when "00100" => ss_st_dout <= control_reg;
+		when "00101" => ss_st_dout <= cpu_vec_reg;
+		when "00110" => ss_st_dout <= sync_bus_reg;
+		when "00111" => ss_st_dout <= watchdog_cnt;
+		when "01000" => ss_st_dout <= mcnt;
+		when "01001" => ss_st_dout <= mcnt2(7 downto 0);
+		when "01010" => ss_st_dout <= "00000" & mcnt2(10 downto 8);
+		when "01011" => ss_st_dout <= "000" & old_rd_l2 & old_rd_l & dcnt & cpu_int_l;
+		when others  => ss_st_dout <= (others => '0');
+	end case;
 end process;
 
 u_program_rom: work.rom_descrambler
