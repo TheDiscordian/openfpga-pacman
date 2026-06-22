@@ -916,7 +916,7 @@ begin
 	ss_regweh  <= ss_wr and ss_idx(4) and not ss_idx(0);
 	ss_regwel  <= ss_wr and ss_idx(4) and     ss_idx(0);
 	ss_bndry   <= '1' when MCycle = "001" and TState = "001" else '0';
-	process (ss_idx, ACC, F, Ap, Fp, I, R, SP, PC, IMode, Halt, Alternate,
+	process (ss_idx, ACC, F, Ap, Fp, I, R, SP, PC, IStatus, Halt_FF, Alternate,
 	         IntE_FF1, IntE_FF2, ss_regdoh, ss_regdol)
 	begin
 		case ss_idx is
@@ -930,7 +930,11 @@ begin
 			when "00111" => ss_dout <= std_logic_vector(SP(15 downto 8));
 			when "01000" => ss_dout <= std_logic_vector(PC(7 downto 0));
 			when "01001" => ss_dout <= std_logic_vector(PC(15 downto 8));
-			when "01010" => ss_dout <= "00" & IMode & Halt & Alternate & IntE_FF2 & IntE_FF1;
+			-- byte 10: persistent IM mode + halt latch + bank + IFF2/1. Capture the
+			-- PERSISTENT IStatus/Halt_FF (not the transient MCode outputs IMode/Halt,
+			-- which read "11"/0 at the M1/T1 save boundary), since the restore writes
+			-- bits 5:4 into IStatus (T80.vhd ~749) and bit 3 into Halt_FF (~1171).
+			when "01010" => ss_dout <= "00" & IStatus & Halt_FF & Alternate & IntE_FF2 & IntE_FF1;
 			when others  =>                          -- 16..31 regfile, else 0
 				if ss_idx(4) = '1' then
 					if ss_idx(0) = '0' then ss_dout <= ss_regdoh;

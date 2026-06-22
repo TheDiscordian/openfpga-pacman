@@ -325,6 +325,12 @@ always @(*) begin
         // high-score save image (read back by the Pocket on Quit/sleep)
         bridge_rd_data <= save_rd_data;
     end
+    32'h4xxxxxxx: begin
+        // savestate ("Memories") buffer -- read back by the Pocket on save flush.
+        // Without this arm the save reads back all zeros (SS_ADDR=0x40000000,
+        // ss_unloader ADDRESS_MASK_UPPER_4=0x4), so a load restores a blank machine.
+        bridge_rd_data <= ss_rd_data;
+    end
     32'hF8xxxxxx: begin
         bridge_rd_data <= cmd_bridge_rd_data;
     end
@@ -779,20 +785,23 @@ mf_pllbase mp1 (
     );
 
     // ===================================================================
-    // Save states (feat/savestates) -- WORK IN PROGRESS, UNTESTED ON DEVICE
+    // Save states ("Memories") -- full machine-state snapshot/restore
     // -------------------------------------------------------------------
-    // Stage 2 transport: snapshot / restore the 4 KB main work RAM through the
-    // same hiscore tap (muxed below), staged in a bridge buffer at SS_ADDR. The
-    // CPU register file and the I/O latches are NOT captured yet, so a restore
-    // would be incoherent -- SS_SUPPORTED stays 0 and the Pocket will not invoke
-    // any of this until the T80 savestate port lands (Stage 1) and an on-device
-    // save/reload pass validates. The logic below synthesises but is dormant.
-    // See SAVESTATES.md.
+    // The blob captures everything that defines the running machine, walked by one
+    // unified counter (3 cycles/byte) through three taps into a bridge buffer at
+    // SS_ADDR: 4 KB main work RAM (hiscore tap), the 32-byte T80 register set
+    // (ss_cpu_* bus), and pacman's own timing/IRQ/control latches (ss_st_* bus).
+    // The whole walk runs under park (ss_cpu_load) + pause (ss_pause_o) + freeze
+    // (ss_freeze) so the snapshot is internally coherent and the restore is not
+    // stomped by free-running flops. Base + Ms. Pac-Man resume bit-exact; the audio
+    // PSG dpram (vol/frq) and sprite_xy_ram self-heal within one frame from captured
+    // RAM, and the variant SN76489/YM2149 chips are not yet captured. See SAVESTATES.md.
     // ===================================================================
-    localparam        SS_SUPPORTED = 1'b1;          // enabled on this branch for on-device validation (RAM + CPU)
+    localparam        SS_SUPPORTED = 1'b1;
     localparam [31:0] SS_ADDR      = 32'h40000000;  // bridge window 0x4
     localparam [12:0] SS_RAM       = 13'd4096;      // 4KB main work RAM (buffer 0..4095)
-    localparam [12:0] SS_BYTES     = 13'd4128;      // + 32 CPU bytes (buffer 4096..4127)
+    localparam [12:0] SS_CPU       = 13'd4128;      // + 32 T80 CPU bytes (buffer 4096..4127)
+    localparam [12:0] SS_BYTES     = 13'd4140;      // + 12 pacman machine-state bytes (4128..4139)
 
     assign savestate_supported   = SS_SUPPORTED;
     assign savestate_addr        = SS_ADDR;
@@ -857,8 +866,9 @@ mf_pllbase mp1 (
 
     // 3 cycles per byte: present address/index, wait one cycle for the registered
     // read, then capture (save) or write back (load). One unified counter walks the
-    // 4128-byte blob: bytes 0..4095 = work RAM (via the hiscore tap), 4096..4127 =
-    // CPU registers (via the ss_cpu_* bus into the T80, ss_idx = cnt[4:0]).
+    // 4140-byte blob: bytes 0..4095 = work RAM (via the hiscore tap), 4096..4127 =
+    // T80 CPU registers (ss_cpu_* bus), 4128..4139 = pacman machine state (ss_st_* bus:
+    // hcnt/vcnt/control_reg/cpu_vec_reg/sync_bus/watchdog/protection + IRQ/flags).
     localparam SS_IDLE=4'd0, SS_SV0=4'd1, SS_SV1=4'd2, SS_SV2=4'd3,
                SS_LD0=4'd4, SS_LD1=4'd5, SS_LD2=4'd6, SS_FIN=4'd7,
                SS_ARM=4'd8;
@@ -880,11 +890,19 @@ mf_pllbase mp1 (
     reg  [4:0]  ss_cpu_idx_r;
     reg  [7:0]  ss_cpu_din_r;
     reg         ss_cpu_wr_r;
+    reg  [4:0]  ss_st_idx_r;                         // pacman machine-state bus
+    reg  [7:0]  ss_st_din_r;
+    reg         ss_st_wr_r;
     wire        ss_active = (ss_st != SS_IDLE);
     wire        ss_walking = (ss_st != SS_IDLE) && (ss_st != SS_ARM);
-    wire        ss_cpu_ph = (ss_cnt >= SS_RAM);     // CPU phase of the walk
+    // Strict-priority half-open phases so exactly one tap drives the buffer per byte:
+    //   RAM   0..4095   (cnt < SS_RAM)         hiscore tap
+    //   CPU   4096..4127 (SS_RAM..<SS_CPU)     ss_cpu_* bus
+    //   STATE 4128..4139 (cnt >= SS_CPU)       ss_st_* bus (pacman timing/IRQ/control)
+    wire        ss_cpu_ph = (ss_cnt >= SS_RAM) && (ss_cnt < SS_CPU);
+    wire        ss_st_ph  = (ss_cnt >= SS_CPU);
     always @(posedge clk_sys) begin
-        ss_rd_o <= 1'b0; ss_wr_o <= 1'b0; ss_wen_o <= 1'b0; ssa_we <= 1'b0; ss_cpu_wr_r <= 1'b0;
+        ss_rd_o <= 1'b0; ss_wr_o <= 1'b0; ss_wen_o <= 1'b0; ssa_we <= 1'b0; ss_cpu_wr_r <= 1'b0; ss_st_wr_r <= 1'b0;
         case (ss_st)
         SS_IDLE: begin
             ss_pause_o <= 1'b0;
@@ -897,15 +915,15 @@ mf_pllbase mp1 (
             // guarantees the host samples ack=0 for a fresh request.
             //
             // LOAD does NOT arm: it goes straight to the walk (SS_LD0) and forces the
-            // park immediately. A load OVERWRITES the entire CPU register set, so
-            // there is no in-flight instruction to protect and no live boundary worth
-            // waiting for. More importantly, around a Memory load the host holds the
-            // core in reset while it streams the blob in, so the T80 sits at
-            // MCycle/TState=001/000 (TState=0, not 1) and ss_cpu_bndry can NEVER pulse
-            // (T80.vhd:918,1071) -- arming on LOAD would wait forever -> the on-device
-            // "load flickers forever". ss_cpu_load (=ss_walking) goes true the instant
-            // we leave SS_IDLE, so the T80 park (T80.vhd:1177, CEN-independent) forces
-            // MCycle/TState=M1/T1 itself; no pre-wait is needed or possible.
+            // park immediately. A load OVERWRITES the entire CPU register set, so there
+            // is no in-flight instruction to protect and no live fetch boundary worth
+            // waiting for -- the park (T80.vhd:1177, CEN-independent) forces
+            // MCycle/TState=M1/T1 itself the instant we leave SS_IDLE. (reset_n is
+            // power-on-only, apf_top.v:217-232: the Pocket does NOT hold the core in
+            // reset during a Memory load, so the core is freely running -- ss_pause_o
+            // AND ss_freeze, asserted from the first load cycle, are what freeze the CPU
+            // and the timing/IRQ flops, not reset. Arming LOAD would just wait one frame
+            // for the SS_ARM timeout for no benefit, so skip it.)
             if (ss_start_rise) begin
                 ss_st <= SS_ARM; ss_cnt <= 13'd0; ss_op_load <= 1'b0;
                 ss_busy_cs <= 1'b1; ss_save_ok_cs <= 1'b0;
@@ -934,14 +952,15 @@ mf_pllbase mp1 (
         end
         // SAVE: present source addr/index -> wait -> capture into buffer[cnt]
         SS_SV0: begin
-            if (ss_cpu_ph) ss_cpu_idx_r <= ss_cnt[4:0];
-            else begin ss_addr_o <= ss_cnt[11:0]; ss_rd_o <= 1'b1; end
+            if (ss_st_ph)       ss_st_idx_r  <= ss_cnt[4:0];                  // STATE phase
+            else if (ss_cpu_ph) ss_cpu_idx_r <= ss_cnt[4:0];                  // CPU phase
+            else begin ss_addr_o <= ss_cnt[11:0]; ss_rd_o <= 1'b1; end        // RAM phase
             ss_st <= SS_SV1;
         end
         SS_SV1: begin ss_st <= SS_SV2; end               // read latency (addr/index held)
         SS_SV2: begin
             ssa_addr  <= ss_cnt;
-            ssa_wdata <= ss_cpu_ph ? ss_cpu_dout : hs_dout;
+            ssa_wdata <= ss_st_ph ? ss_st_dout : (ss_cpu_ph ? ss_cpu_dout : hs_dout);
             ssa_we    <= 1'b1;
             if (ss_cnt == SS_BYTES - 1) ss_st <= SS_FIN;
             else begin ss_cnt <= ss_cnt + 13'd1; ss_st <= SS_SV0; end
@@ -950,9 +969,11 @@ mf_pllbase mp1 (
         SS_LD0: begin ssa_addr <= ss_cnt; ss_st <= SS_LD1; end
         SS_LD1: begin ss_st <= SS_LD2; end               // dpram read latency
         SS_LD2: begin
-            if (ss_cpu_ph) begin
+            if (ss_st_ph) begin                                              // STATE phase
+                ss_st_idx_r <= ss_cnt[4:0]; ss_st_din_r <= ssa_q; ss_st_wr_r <= 1'b1;
+            end else if (ss_cpu_ph) begin                                    // CPU phase
                 ss_cpu_idx_r <= ss_cnt[4:0]; ss_cpu_din_r <= ssa_q; ss_cpu_wr_r <= 1'b1;
-            end else begin
+            end else begin                                                   // RAM phase
                 ss_addr_o <= ss_cnt[11:0]; ss_din_o <= ssa_q; ss_wen_o <= 1'b1; ss_wr_o <= 1'b1;
             end
             if (ss_cnt == SS_BYTES - 1) ss_st <= SS_FIN;
@@ -975,18 +996,29 @@ mf_pllbase mp1 (
     // re-forced every CEN edge) pins it at that exact boundary while RAM/regs are
     // read -> captured PC/regs coherent with captured RAM.
     // LOAD: skips SS_ARM (see SS_IDLE) and asserts ss_cpu_load immediately. A load
-    // overwrites the whole register set, and around a Memory load the host holds the
-    // core in reset (T80 sits at TState=0, never the M1/T1 boundary) so no natural
-    // boundary can arrive -- the park itself forces MCycle/TState=M1/T1 CEN-independently
-    // and the restore proceeds. (Arming on LOAD was the SS_ARM deadlock that produced
-    // the on-device "load flickers forever".) No pacman.vhd pause/CLKEN change is
-    // needed -- the park is the freeze. Previously this was gated on ss_cpu_ph (only
-    // the last 32 bytes), leaving the CPU WAIT-stalled mid-instruction for the
-    // 12288-cycle RAM phase -> incoherent snapshot -> bad-PC restore -> watchdog reset.
+    // overwrites the whole register set, so there is no in-flight instruction to
+    // protect -- the park (T80.vhd:1177, CEN-independent) forces MCycle/TState=M1/T1
+    // itself and the restore proceeds. The CPU freeze is ss_cpu_load (park) + ss_pause_o
+    // (pause). The pacman timing/IRQ/control flops (hcnt/vcnt/control_reg/cpu_int_l/
+    // watchdog/sync_bus, NOT pause-gated) are frozen separately by ss_freeze (=ss_walking)
+    // -- WITHOUT that freeze a restored value is stomped by the very next ena_6 edge, so
+    // the load cold-booted the game. (reset_n is power-on-only, apf_top.v:217-232: the
+    // host does NOT reset the core during a Memory load; the earlier "held in reset"
+    // reasoning here was wrong -- ss_pause_o + ss_freeze are the freeze, not reset.)
     assign ss_cpu_idx  = ss_cpu_idx_r;
     assign ss_cpu_din  = ss_cpu_din_r;
     assign ss_cpu_wr   = ss_cpu_wr_r;
     assign ss_cpu_load = ss_walking;
+
+    // pacman machine-state bus (timing/IRQ/control latches). ss_freeze is held for
+    // the WHOLE walk (=ss_walking) so the free-running hcnt/vcnt/cpu_int_l/watchdog/
+    // sync_bus flops hold: a SAVE snapshots them coherent with the M1/T1-parked CPU,
+    // and a LOAD's restore strobes are not stomped by the next ena_6 edge. Released
+    // with the park at SS_FIN so the first post-restore cycle sees the saved timing.
+    assign ss_st_idx = ss_st_idx_r;
+    assign ss_st_din = ss_st_din_r;
+    assign ss_st_wr  = ss_st_wr_r;
+    assign ss_freeze = ss_walking;
 
     // tap mux: savestate FSM owns the tap while active, else hiscore does.
     assign hs_addr   = ss_active ? ss_addr_o : hsi_addr;
@@ -1166,17 +1198,22 @@ mf_pllbase mp1 (
     end
 
     wire [9:0] pac_audio;
-    // CPU savestate bus from the T80 (via pacman). Read-out (idx/dout/bndry) and the
-    // restore path (din/wr/load) are threaded end-to-end but tied off for now -- the
-    // FSM CPU capture/restore (which grows the state buffer past the 4KB RAM) is the
-    // next step. With load=0 and wr=0 the T80 is bit-identical to stock, so the build
-    // stays a no-op until the FSM drives these.
-    wire [4:0] ss_cpu_idx;     // driven by the savestate FSM (above)
+    // Savestate buses into pacman, all driven by the FSM above.
+    // CPU bus: read-out (idx/dout/bndry) + restore (din/wr/load) of the T80 registers.
+    wire [4:0] ss_cpu_idx;
     wire [7:0] ss_cpu_dout;
     wire       ss_cpu_bndry;
     wire [7:0] ss_cpu_din;
     wire       ss_cpu_wr;
     wire       ss_cpu_load;
+    // Machine-state bus: pacman's own timing/IRQ/control latches (hcnt/vcnt/control_reg/
+    // cpu_vec_reg/cpu_int_l/watchdog/sync_bus/protection counters) + ss_freeze, which
+    // holds those free-running flops for the whole walk so save/restore is coherent.
+    wire [4:0] ss_st_idx;
+    wire [7:0] ss_st_dout;
+    wire [7:0] ss_st_din;
+    wire       ss_st_wr;
+    wire       ss_freeze;
 
     pacman pacman_core (
         .O_VIDEO_R (core_r), .O_VIDEO_G (core_g), .O_VIDEO_B (core_b),
@@ -1197,6 +1234,8 @@ mf_pllbase mp1 (
         .hs_write_enable (hs_wen), .hs_access_read (hs_rd), .hs_access_write (hs_wr_acc),
         .ss_cpu_idx (ss_cpu_idx), .ss_cpu_dout (ss_cpu_dout), .ss_cpu_bndry (ss_cpu_bndry),
         .ss_cpu_din (ss_cpu_din), .ss_cpu_wr (ss_cpu_wr), .ss_cpu_load (ss_cpu_load),
+        .ss_st_idx (ss_st_idx), .ss_st_dout (ss_st_dout),
+        .ss_st_din (ss_st_din), .ss_st_wr (ss_st_wr), .ss_freeze (ss_freeze),
         .RESET (core_reset),
         .CLK (clk_sys),
         .ENA_6 (ce_6m), .ENA_4 (ce_4m), .ENA_1M79 (ce_1m79)

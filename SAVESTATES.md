@@ -1,25 +1,45 @@
 # Save states — design + implementation plan 💾
 
-How the Analogue Pocket save-state feature maps onto this core, what state has to
-be captured, and the staged plan to get there. This is the spec the implementation
-follows; it does **not** describe a shipped feature yet (`savestate_supported` is
-still 0 — see Status).
+How the Analogue Pocket save-state feature maps onto this core and what state has
+to be captured. The full machine-state snapshot/restore is implemented
+(`savestate_supported = 1`); see Status for the byte layout, the freeze mechanism,
+and the documented cosmetic gaps.
 
 ## Status
 
-**In progress on `feat/savestates`, dormant (`savestate_supported = 0`).**
+**Full machine-state snapshot/restore implemented on `feat/savestates`
+(`savestate_supported = 1`).** The blob is a 4140-byte walk in three phases:
 
-- **Stage 2 transport + RAM — landed (dormant).** `core_top.v` now drives the
-  `savestate_*` handshake, exposes a 4 KB bridge buffer at `SS_ADDR` (window `0x4`)
-  via a `data_loader`/`data_unloader` pair, and runs a serialise FSM that
-  snapshots / restores the 4 KB main work RAM through the hiscore tap (muxed). It
-  synthesises but is **dormant**: `SS_SUPPORTED = 0`, so the Pocket never invokes
-  it. RAM-only restore is incoherent on its own, so we keep it off.
-- **Stage 1 CPU — not started.** This is the gate (see below). Until the Z80
-  register state is captured and an on-device save→reload→continue pass validates,
-  `SS_SUPPORTED` stays 0.
+- **RAM (0..4095)** — 4 KB main work RAM via the hiscore tap.
+- **CPU (4096..4127)** — the 32-byte T80 register set via the `ss_cpu_*` bus
+  (export read mux + restore write path, M1/T1 park during the walk).
+- **STATE (4128..4139)** — pacman's own timing/IRQ/control latches via the new
+  `ss_st_*` bus: `hcnt`, `vcnt`, `control_reg` (74LS259, incl. interrupt-enable),
+  `cpu_vec_reg` (IM2 vector), `sync_bus_reg`, `watchdog_cnt`, `cpu_int_l`, the
+  `mcnt`/`mcnt2` protection counters and the `dcnt`/`old_rd_l`/`old_rd_l2` flags.
 
-The original APF handshake was present but undriven; Stage 2 wired it up.
+The load-bearing fix beyond "capture more bytes": **`ss_freeze`** (= the walk is
+active) holds every free-running timing/IRQ flop in pacman for the whole walk.
+Those flops (`p_hvcnt`, `p_irq_req_watchdog`, `p_sync_bus_reg`, `p_mcnt`,
+`eeek_decrypt`) are gated by `ena_6` only, **not** `pause`, and `ce_6m` keeps
+pulsing while paused — so without the freeze a SAVE captured `hcnt`/`vcnt`
+thousands of counts ahead of the M1/T1-parked CPU (incoherent) and a LOAD's
+restore strobe was overwritten on the very next `ena_6` edge (futile) → the CPU
+ran wild → the watchdog cold-booted: the "load just reloads the game" bug.
+
+False premise corrected: `apf_top.v:217-232` shows `reset_n` is a power-on
+one-shot, so the Pocket does **not** hold the core in reset during a Memory load.
+The freeze is `ss_pause_o` (CPU) + `ss_freeze` (timing/IRQ), not reset.
+
+Base **Pac-Man / Ms. Pac-Man resume bit-exact**. Known cosmetic/self-healing gaps
+(documented, not fatal): `sprite_xy_ram` and the WSG `vol_ram`/`frq_ram` are
+**not** captured but self-heal within one frame because their source lives in
+captured main RAM and the game's IRQ/sound driver rewrites them; the variant PSG
+chips (SN76489 for Van-Van, YM2149 for Dream Shopper) carry uncaptured internal
+counters (audio click on those variants only). Aux RAM (`u_ram2`, Alibaba) — TODO.
+
+Format note: the blob grew 4128 → 4140 bytes, so old 4128-byte WIP states do not
+load (no shipped saves existed).
 
 ## How the Pocket save-state API works
 
