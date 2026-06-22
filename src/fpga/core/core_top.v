@@ -574,6 +574,14 @@ assign video_hs = vidout_hs;
     wire [2:0] scaler_slot = mod_ponp                          ? 3'd1 :
                              (mod_bird | mod_van | mod_dshop)  ? 3'd2 : 3'd0;
 
+    // Birdiy/Van-Van/Dream Shopper run the picture flipped; under flip the content
+    // overruns its active window by 1px and leaks a colored stripe at the left edge
+    // (the 1px border masks the un-flipped side only). Blank the outermost active
+    // column on both H edges for these games so the leak is always covered -- border
+    // and DE dimensions are unchanged, so no clip and no video.json change.
+    wire flip_trio  = mod_bird | mod_van | mod_dshop;
+    wire h_edge_col = (hcnt == h_start) | (hcnt + 10'd1 == h_end);
+
     wire in_window = (hcnt + BORDER >= h_start) && (hcnt + 10'd1 <= h_end + BORDER) &&
                      (vcnt + BORDER >= v_start + 10'd1) && (vcnt <= v_end + BORDER);
 
@@ -623,7 +631,7 @@ always @(posedge clk_pix) begin
     vidout_vs   <= core_vsync;
     vidout_de   <= in_window;
     if (in_window)
-        vidout_rgb <= (core_hblank | core_vblank) ? 24'h0 :
+        vidout_rgb <= (core_hblank | core_vblank | (flip_trio & h_edge_col)) ? 24'h0 :
                       { dac_rg(core_r), dac_rg(core_g), dac_b(core_b) };
     else if (in_window_d)            // DE falling edge -> scaler slot select
         vidout_rgb <= { 8'd0, scaler_slot, 13'd0 };  // [2:0]=000 Set Scaler Slot
