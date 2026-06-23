@@ -19,8 +19,11 @@
 //
 // CRITICAL: pacman.vhd gates the CPU work-RAM write with `and not (hs_access_read
 // or hs_access_write)`, so every tap access is wrapped in a CPU pause, in vblank.
-// A fresh Pocket .sav is 0xFF-filled; a BCD score never contains 0xFF, so an all-
-// 0xFF first region means "no save yet" -> skip inject (leave the game default).
+// A never-written save carries no validity marker (shadow[255] != MAGIC) -> skip
+// inject and leave the game's own default table (injecting an empty save would
+// stamp zeros over the label/tile RAM, e.g. "HIGH SCORE" -> "HIG0 SCORE"). The
+// first snapshot stamps the marker, so later boots restore. (Do NOT guess "fresh"
+// from a byte value: a cleared Pocket slot reads back 0x00, not 0xFF.)
 
 `default_nettype none
 module hiscore #(
@@ -52,7 +55,7 @@ module hiscore #(
     function [CW-1:0] R; input [11:0] o; input [7:0] l; input [7:0] s; input [7:0] e;
         R = {1'b1, o, l, s, e};
     endfunction
-    function [CW-1:0] cfg; input [4:0] m; input [1:0] i;
+    function [CW-1:0] cfg; input [4:0] m; input [2:0] i;
         begin
             cfg = {CW{1'b0}};
             case (m)
@@ -106,13 +109,13 @@ module hiscore #(
 
     // FSM state (declared before the cfg unpack below, which reads `ri`)
     reg [3:0]  state;
-    reg [1:0]  ri;       // region index
+    reg [2:0]  ri;       // region index (must reach "past last" = 4 for 4-region games)
     reg [7:0]  bi;       // byte index within region
     reg [7:0]  sp;       // flat shadow pointer
     reg [15:0] timer;
     reg        halt;
     reg        gate_ok;
-    reg        fresh;    // .sav is unwritten (0xFF) -> do not inject
+    reg        fresh;    // .sav has no validity marker -> do not inject
 
     // current region (combinational unpack of cfg(mod_sel, ri))
     wire [CW-1:0] cw   = cfg(mod_sel, ri);
@@ -127,6 +130,7 @@ module hiscore #(
     reg [7:0] shadow [0:255];
     assign sv_rd_data = shadow[sv_rd_addr];
 
+    localparam [7:0] MAGIC = 8'h5A;   // .sav validity marker, stored at shadow[255]
     localparam S_IDLE=4'd0, S_ARM=4'd1,
                S_GA=4'd2,  S_GA_L=4'd3,  S_GB=4'd4, S_GB_L=4'd5,  // gate: first/last byte per region
                S_INJ=4'd6,                                        // write shadow -> RAM (one byte/cycle)
@@ -148,8 +152,8 @@ module hiscore #(
             case (state)
             S_IDLE: begin
                 pause <= 1'b0;
-                if (loaded && cfg(mod_sel, 2'd0) != {CW{1'b0}}) begin
-                    fresh <= (shadow[0] == 8'hFF);   // first region byte 0xFF => fresh card
+                if (loaded && cfg(mod_sel, 3'd0) != {CW{1'b0}}) begin
+                    fresh <= (shadow[8'd255] != MAGIC);   // no validity marker => never-saved
                     timer <= 16'd2048; state <= S_ARM;
                 end
             end
@@ -200,7 +204,7 @@ module hiscore #(
             // --- snapshot: RAM -> shadow, one byte per 2 cycles, across all regions ---
             S_SN: begin
                 pause <= 1'b1;
-                if (!rv) begin timer <= POLL_INTERVAL; state <= S_HOLD; end
+                if (!rv) begin shadow[8'd255] <= MAGIC; timer <= POLL_INTERVAL; state <= S_HOLD; end
                 else begin hs_address <= roff + {4'd0, bi}; hs_access_read <= 1'b1; state <= S_SN_L; end
             end
             S_SN_L: begin
