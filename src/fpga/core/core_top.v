@@ -339,6 +339,7 @@ always @(*) begin
     32'h50000008: begin bridge_rd_data <= {30'd0, dip_life};  end
     32'h5000000C: begin bridge_rd_data <= {30'd0, dip_bonus}; end
     32'h50000010: begin bridge_rd_data <= {31'd0, dip_diff};  end
+    32'h50000014: begin bridge_rd_data <= {29'd0, lp_k}; end
     endcase
 end
 
@@ -653,24 +654,27 @@ end
     // O_AUDIO over each 48 kHz frame (512 clk_sys = exactly 2 multiplex windows =
     // 2 samples per voice) to recover that sum and anti-alias before sound_i2s
     // point-samples it. sum/512 -> bits [18:9].
-    // Then a 1st-order IIR low-pass models the board's analog output stage (the
-    // raw stepped WSG is harsh without it). cutoff ~= clk_audio/(2*pi*2^AUD_LPF_K)
-    // i.e. ~5 kHz at K=1; AUD_LPF_K is the single tuning knob. aud_lpf is 10.8
-    // fixed-point; input is non-negative so the state stays non-negative.
-    localparam [2:0]   AUD_LPF_K = 3'd1;
+    // Audio output: selectable low-pass. The "Low-Pass Filter" menu value IS the IIR
+    // shift K (0 = bypass = raw 1.0.0 path); each cutoff is OSD-selectable. corner ~=
+    // 48k/(2*pi*2^K): K1~5k K2~2.5k K3~1.2k K4~600 K5~300 Hz (bigger K -> more muffled).
+    // Rounded leaky IIR in 10.12 fixed-point; lp_k is static OSD config (clk_74a),
+    // used directly like the DIPs.
     reg  [8:0]         aud_div = 9'd0;
     reg  [19:0]        aud_acc = 20'd0;
-    reg  signed [18:0] aud_lpf = 19'd0;
+    reg  [9:0]         aud_raw = 10'd0;          // raw box-average (K=0 bypass)
+    reg  signed [23:0] aud_lpf = 24'sd0;         // low-pass state (10.12)
+    wire signed [23:0] lp_rnd = (lp_k == 3'd0) ? 24'sd0 : (24'sd1 <<< (lp_k - 3'd1));
+    wire [9:0] pac_audio_s = (lp_k != 3'd0) ? aud_lpf[21:12] : aud_raw;     // low-pass (K=0 bypass)
     always @(posedge clk_sys) begin
         aud_div <= aud_div + 9'd1;
         if (aud_div == 9'd511) begin
-            aud_lpf <= aud_lpf + (($signed({1'b0, aud_acc[18:9], 8'd0}) - aud_lpf) >>> AUD_LPF_K);
-            aud_acc <= pac_audio;            // seed next 48 kHz frame with this sample
+            aud_raw <= aud_acc[18:9];
+            aud_lpf <= aud_lpf + ((($signed({2'b0, aud_acc[18:9], 12'd0}) - aud_lpf) + lp_rnd) >>> lp_k);
+            aud_acc <= pac_audio;                // seed next 48 kHz frame
         end else begin
             aud_acc <= aud_acc + pac_audio;
         end
     end
-    wire [9:0] pac_audio_s = aud_lpf[17:8]; // box-avg + analog-model low-pass
 
     sound_i2s #(
         .CHANNEL_WIDTH (10),
@@ -1117,11 +1121,13 @@ mf_pllbase mp1 (
     reg [1:0] dip_life  = 2'd2;   // 0x50000008  0=1 1=2 2=3 3=5
     reg [1:0] dip_bonus = 2'd0;   // 0x5000000C  0=10000 1=15000 2=20000 3=None
     reg       dip_diff  = 1'b1;   // 0x50000010  0=Hard 1=Normal
+    reg [2:0] lp_k = 3'd1;        // 0x50000014  low-pass shift K (0=Off, default K1 5kHz)
     always @(posedge clk_74a) if (bridge_wr) case (bridge_addr)
         32'h50000004: dip_coin  <= bridge_wr_data[1:0];
         32'h50000008: dip_life  <= bridge_wr_data[1:0];
         32'h5000000C: dip_bonus <= bridge_wr_data[1:0];
         32'h50000010: dip_diff  <= bridge_wr_data[0];
+        32'h50000014: lp_k <= bridge_wr_data[2:0];
     endcase
 
     wire mod_plus  = (mod_reg == 8'd1);
