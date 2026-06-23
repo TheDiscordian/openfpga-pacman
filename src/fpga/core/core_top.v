@@ -768,12 +768,12 @@ mf_pllbase mp1 (
         .write_data           (ioctl_data)
     );
 
-    // High-score save. APF save slot on
-    // bridge window 0x2: save_loader fills the 4-byte shadow from <rom>.sav, the
-    // save_unloader streams it back to SD on Quit/sleep. The hiscore controller
-    // restores it into work RAM after boot and periodically snapshots the score.
+    // High-score save. APF save slot on bridge window 0x2: save_loader fills the
+    // 256-byte shadow from <rom>.sav, the save_unloader streams it back to SD on
+    // Quit/sleep. The hiscore controller restores it into work RAM after boot and
+    // periodically snapshots the per-variant high-score regions.
     wire        hs_sv_wr;
-    wire [3:0]  hs_sv_wr_addr, hs_sv_rd_addr;
+    wire [7:0]  hs_sv_wr_addr, hs_sv_rd_addr;
     wire [7:0]  hs_sv_wr_data, hs_sv_rd_data;
     wire [31:0] save_rd_data;
     wire [11:0] hs_addr;
@@ -794,13 +794,13 @@ mf_pllbase mp1 (
     wire menu_pause = inmenu_sync[1];
     wire core_pause = hs_pause | menu_pause;
 
-    data_loader #(.ADDRESS_MASK_UPPER_4 (4'h2), .ADDRESS_SIZE (4), .OUTPUT_WORD_SIZE (1)) save_loader (
+    data_loader #(.ADDRESS_MASK_UPPER_4 (4'h2), .ADDRESS_SIZE (8), .OUTPUT_WORD_SIZE (1)) save_loader (
         .clk_74a (clk_74a), .clk_memory (clk_sys),
         .bridge_wr (bridge_wr), .bridge_endian_little (bridge_endian_little),
         .bridge_addr (bridge_addr), .bridge_wr_data (bridge_wr_data),
         .write_en (hs_sv_wr), .write_addr (hs_sv_wr_addr), .write_data (hs_sv_wr_data)
     );
-    data_unloader #(.ADDRESS_MASK_UPPER_4 (4'h2), .ADDRESS_SIZE (4), .READ_MEM_CLOCK_DELAY (4), .INPUT_WORD_SIZE (1)) save_unloader (
+    data_unloader #(.ADDRESS_MASK_UPPER_4 (4'h2), .ADDRESS_SIZE (8), .READ_MEM_CLOCK_DELAY (4), .INPUT_WORD_SIZE (1)) save_unloader (
         .clk_74a (clk_74a), .clk_memory (clk_sys),
         .bridge_rd (bridge_rd), .bridge_endian_little (bridge_endian_little),
         .bridge_addr (bridge_addr), .bridge_rd_data (save_rd_data),
@@ -808,7 +808,7 @@ mf_pllbase mp1 (
     );
     hiscore hi (
         .clk (clk_sys), .ce (ce_6m), .reset (core_reset), .loaded (dl_complete_s),
-        .en_paint (pacman_family), .vbl (core_vblank),
+        .mod_sel (mod_reg[4:0]), .vbl (core_vblank),
         .hs_address (hsi_addr), .hs_data_in (hsi_din), .hs_data_out (hs_dout),
         .hs_write_enable (hsi_wen), .hs_access_read (hsi_rd), .hs_access_write (hsi_wr_acc),
         .pause (hsi_pause),
@@ -1154,12 +1154,6 @@ mf_pllbase mp1 (
     wire mod_dshop = (mod_reg == 8'd14);
     wire mod_glob  = (mod_reg == 8'd15);
     wire mod_jmpst = (mod_reg == 8'd16);
-
-    // hiscore.sv paints Pac-Man-specific glyphs at Pac-Man work-RAM offsets; only the
-    // Pac-Man family (mod 0 Pac-Man, mod 5 Ms. Pac-Man, + the speedups) shares that
-    // layout. Other variants run the overlay idle (snapshot-only) so it never paints
-    // garbage into their high-score area.
-    wire pacman_family = (mod_reg == 8'd0) | (mod_reg == 8'd5);
 
     // Per-mod IN0/IN1. Default = base Pac-Man (active-low, no action button).
     // Variant action-button bits and Ponpoko's active-high polarity come from

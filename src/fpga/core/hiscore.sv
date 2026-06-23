@@ -2,50 +2,36 @@
 //
 // Copyright (c) 2026 TheDiscordian and openFPGA Pac-Man contributors
 //
-// High-score persistence for the openFPGA Pac-Man core.
+// Generic per-variant high-score persistence for the openFPGA Pac-Man core.
 //
-// Pac-Man never repaints the HIGH SCORE from work RAM on a timer or at screen
-// setup: the value digits are drawn to video RAM only inline, the instant the
-// live score beats the stored high score (ROM #2a9b-#2abe). During a session
-// that is why a beaten high score stays on screen. But after a reboot, restoring
-// a saved score into 0x4E88 triggers no draw -- and the attract demo cannot beat
-// a real high score to trigger one -- so the only way to SHOW a restored score
-// is to draw the digits ourselves. Pinning 0x4E88 must NOT be done: the compare
-// at #2a93 (`ret c`) then aborts forever and the player can never beat it.
+// NVRAM model (MAME hiscore.dat semantics), not a glyph painter: each game's
+// high-score lives in a set of work-RAM regions. We poll until the game has set
+// up its default table (each region's first byte == its start value and last
+// byte == its end value), inject the saved bytes ONCE, then snapshot the regions
+// every poll so the .sav tracks the live high score. Restoring the raw bytes
+// (score + the displayed tile RAM) is what makes the value show after a reboot --
+// no per-game digit painting needed, so this works for every variant uniformly.
 //
-// So this controller, after the boot gate, each frame (paused, in vblank):
-//   * reads the live high score at 0x4E88 and captures it into the save shadow
-//     when it has risen (only-increase),
-//   * UNTIL the score is first beaten: seeds 0x4E88 from the shadow when it is
-//     below the saved value (a floor, never a pin) and paints the saved digits
-//     into video RAM 0x43F2(MSD)..0x43ED(LSD), so the restored score is visible
-//     and survives screen clears,
-//   * ONCE the live score exceeds the saved value (the ROM has drawn the new
-//     high score itself), it hands off: snapshot only, never touching 0x4E88 or
-//     the tiles again -- native behaviour, exactly as before.
-// Tile encoding mirrors the ROM (#2ace): digit 0-9 -> tile 0x00-0x09, blank tile
-// 0x40, up to 4 leading zeros suppressed. The shadow IS the APF save image.
+// The per-mod region table is sourced from MAME plugins/hiscore/hiscore.dat
+// (cross-checked vs the MiSTer MRAs); addresses are resolved to 0x4000-region
+// offsets (Birdiy's tiles are the 0x43ED mirror of the hiscore.dat 0xC3ED).
+// Mods with no table (Eeekk!, Jump Shot) have no regions -> the engine stays idle.
 //
 // CRITICAL: pacman.vhd gates the CPU work-RAM write with `and not (hs_access_read
 // or hs_access_write)`, so every tap access is wrapped in a CPU pause, in vblank.
-//
-// Pac-Man / Ms. Pac-Man (work-RAM offsets, CPU base 0x4000):
-//   score      : 0x0E88, 4 bytes BCD (3 active + 0 high byte); stored = displayed (no x10)
-//   tiles      : 0x43F2(MSD)..0x43ED(LSD) digits -- the 6 digits ARE the full value
-//   start gate : 0x03ED==0x40 AND 0x03D1==0x48 AND 0x0E88==0x00 (boot RAM clear past)
+// A fresh Pocket .sav is 0xFF-filled; a BCD score never contains 0xFF, so an all-
+// 0xFF first region means "no save yet" -> skip inject (leave the game default).
 
 `default_nettype none
 module hiscore #(
-    parameter [15:0] RUN_INTERVAL = 16'hFFFF   // run-loop tick (~one 60Hz frame); shrink in sim
+    parameter [15:0] POLL_INTERVAL = 16'hFFFF   // run-loop tick (~one 60Hz frame); shrink in sim
 ) (
     input  wire        clk,
     input  wire        ce,
     input  wire        reset,
     input  wire        loaded,
-    input  wire        en_paint,   // 1 = Pac-Man-family layout: seed/paint the saved score.
-                                   // 0 = other variant: stay idle (the offsets/glyphs below are
-                                   // Pac-Man-specific and would paint garbage into its high-score area).
     input  wire        vbl,
+    input  wire [4:0]  mod_sel,     // MiSTer mod number; selects the per-game region table
 
     output reg  [11:0] hs_address,
     output reg  [7:0]  hs_data_in,
@@ -56,142 +42,182 @@ module hiscore #(
     output reg         pause,
 
     input  wire        sv_wr,
-    input  wire [3:0]  sv_wr_addr,
+    input  wire [7:0]  sv_wr_addr,
     input  wire [7:0]  sv_wr_data,
-    input  wire [3:0]  sv_rd_addr,
+    input  wire [7:0]  sv_rd_addr,
     output wire [7:0]  sv_rd_data
 );
-    localparam [11:0] SCORE_OFF = 12'hE88;
-    localparam [11:0] CHK0_OFF  = 12'h3ED;
-    localparam [11:0] CHK1_OFF  = 12'h3D1;
-    localparam [11:0] TILE_OFF  = 12'h3EC;   // 0x43EC trailing zero; digits at +1..+6
+    // ---- per-mod region table: packed {valid, off[11:0], len[7:0], sval[7:0], eval[7:0]} ----
+    localparam CW = 37;
+    function [CW-1:0] R; input [11:0] o; input [7:0] l; input [7:0] s; input [7:0] e;
+        R = {1'b1, o, l, s, e};
+    endfunction
+    function [CW-1:0] cfg; input [4:0] m; input [1:0] i;
+        begin
+            cfg = {CW{1'b0}};
+            case (m)
+            5'd0, 5'd5, 5'd1: case (i)                       // Pac-Man / Ms. Pac-Man / Pac-Man Plus
+                2'd0: cfg = R(12'he88, 8'd4,  8'h00, 8'h00);
+                2'd1: cfg = R(12'h3ed, 8'd6,  8'h40, 8'h40);
+                2'd2: cfg = R(12'h3d1, 8'd1,  8'h48, 8'h48);
+                default: cfg = {CW{1'b0}}; endcase
+            5'd2: case (i)                                   // Club
+                2'd0: cfg = R(12'he88, 8'd4,  8'h00, 8'h00);
+                2'd1: cfg = R(12'h3ed, 8'd6,  8'h40, 8'h40);
+                2'd2: cfg = R(12'h3d1, 8'd1,  8'h59, 8'h59);
+                2'd3: cfg = R(12'h3cb, 8'h0a, 8'h4f, 8'h4d); endcase
+            5'd4: case (i)                                   // Birdiy (c3ed -> 43ed mirror)
+                2'd0: cfg = R(12'hc29, 8'h1e, 8'h00, 8'h00);
+                2'd1: cfg = R(12'h3ed, 8'd6,  8'h30, 8'h20);
+                2'd2: cfg = R(12'hd03, 8'd3,  8'h00, 8'h00);
+                default: cfg = {CW{1'b0}}; endcase
+            5'd7: case (i)                                   // Mr. TNT
+                2'd0: cfg = R(12'hcb3, 8'h3c, 8'h4c, 8'h01);
+                2'd1: cfg = R(12'h3ed, 8'd6,  8'h00, 8'h40);
+                default: cfg = {CW{1'b0}}; endcase
+            5'd8: case (i)                                   // Woodpecker
+                2'd0: cfg = R(12'he88, 8'd3,  8'h00, 8'h00);
+                2'd1: cfg = R(12'h3ed, 8'd6,  8'h40, 8'h40);
+                2'd2: cfg = R(12'hdda, 8'd1,  8'h03, 8'h03);
+                default: cfg = {CW{1'b0}}; endcase
+            5'd10: case (i)                                  // Ali Baba
+                2'd0: cfg = R(12'he88, 8'd4,  8'h00, 8'h00);
+                2'd1: cfg = R(12'h3ed, 8'd6,  8'h40, 8'h40);
+                2'd2: cfg = R(12'h3d1, 8'd1,  8'h48, 8'h48);
+                default: cfg = {CW{1'b0}}; endcase
+            5'd11: case (i)                                  // Ponpoko
+                2'd0: cfg = R(12'hc40, 8'd3,  8'h00, 8'h00);
+                2'd1: cfg = R(12'he5a, 8'h13, 8'h00, 8'h00);
+                2'd2: cfg = R(12'h06c, 8'd6,  8'h0f, 8'h00);
+                2'd3: cfg = R(12'hc53, 8'd1,  8'h02, 8'h02); endcase
+            5'd12: case (i)                                  // Van-Van Car
+                2'd0: cfg = R(12'h809, 8'd6,  8'h00, 8'h00);
+                2'd1: cfg = R(12'hc60, 8'hf0, 8'h00, 8'h00);
+                default: cfg = {CW{1'b0}}; endcase
+            5'd14: case (i)                                  // Dream Shopper
+                2'd0: cfg = R(12'hc00, 8'hf0, 8'h00, 8'h01);
+                2'd1: cfg = R(12'h808, 8'd6,  8'h00, 8'h00);
+                2'd2: cfg = R(12'h809, 8'd1,  8'h03, 8'h03);
+                default: cfg = {CW{1'b0}}; endcase
+            default: cfg = {CW{1'b0}};
+            endcase
+        end
+    endfunction
 
-    // ---- shadow (the .sav image) ----
-    reg [7:0]  shadow [0:3];
-    reg [7:0]  live   [0:3];
-    reg        seed, commit;
-    assign sv_rd_data = shadow[sv_rd_addr[1:0]];
-    always @(posedge clk) begin
-        if (sv_wr)       shadow[sv_wr_addr[1:0]] <= sv_wr_data;
-        else if (seed)   {shadow[3],shadow[2],shadow[1],shadow[0]} <= 32'd0;
-        else if (commit) {shadow[3],shadow[2],shadow[1],shadow[0]} <=
-                         {live[3],live[2],live[1],live[0]};
-    end
-
-    // 4-byte BCD magnitude compare (byte 3 most significant)
-    wire gt = (live[3]>shadow[3]) ? 1'b1 : (live[3]<shadow[3]) ? 1'b0 :
-              (live[2]>shadow[2]) ? 1'b1 : (live[2]<shadow[2]) ? 1'b0 :
-              (live[1]>shadow[1]) ? 1'b1 : (live[1]<shadow[1]) ? 1'b0 :
-              (live[0]>shadow[0]);
-    wire eq = (live[0]==shadow[0]) & (live[1]==shadow[1]) &
-              (live[2]==shadow[2]) & (live[3]==shadow[3]);
-
-    // ---- controller ----
-    localparam S_WAIT =5'd0,  S_POLLR=5'd1,  S_POLLP=5'd2,
-               S_GA_S =5'd3,  S_GA_L =5'd4,  S_GB_S =5'd5, S_GB_L=5'd6,
-               S_GC_S =5'd7,  S_GC_L =5'd8,  S_RUN  =5'd9, S_RDP =5'd10,
-               S_RD_S =5'd11, S_RD_L =5'd12, S_CMP  =5'd13,
-               S_SEED =5'd14, S_PAINT=5'd15;
-
-    reg [4:0]  state;
-    reg [1:0]  idx;       // score byte walk (read / re-seed)
-    reg [2:0]  tpos;      // tile walk: 6=MSD(0x43F2) .. 1=LSD(0x43ED), 0=trailing(0x43EC)
+    // FSM state (declared before the cfg unpack below, which reads `ri`)
+    reg [3:0]  state;
+    reg [1:0]  ri;       // region index
+    reg [7:0]  bi;       // byte index within region
+    reg [7:0]  sp;       // flat shadow pointer
     reg [15:0] timer;
     reg        halt;
-    reg        done;      // score beaten once -> hand off to native ROM drawing
-    reg        azero;     // saved value all zero -> blank field (match native blank-for-0)
-    reg [2:0]  bc;        // leading-zero blank budget (4)
-    reg        sig;       // a significant digit has appeared
+    reg        gate_ok;
+    reg        fresh;    // .sav is unwritten (0xFF) -> do not inject
 
-    // current paint digit (MSD..LSD) from the shadow (the saved value)
-    reg  [3:0] dig;
-    always @(*) case (tpos)
-        3'd6: dig = shadow[2][7:4];
-        3'd5: dig = shadow[2][3:0];
-        3'd4: dig = shadow[1][7:4];
-        3'd3: dig = shadow[1][3:0];
-        3'd2: dig = shadow[0][7:4];
-        3'd1: dig = shadow[0][3:0];
-        default: dig = 4'd0;
-    endcase
+    // current region (combinational unpack of cfg(mod_sel, ri))
+    wire [CW-1:0] cw   = cfg(mod_sel, ri);
+    wire          rv   = cw[36];          // region valid
+    wire [11:0]   roff = cw[35:24];
+    wire [7:0]    rlen = cw[23:16];
+    wire [7:0]    rsv  = cw[15:8];
+    wire [7:0]    rev  = cw[7:0];
+    wire [11:0]   rlast = roff + {4'd0, rlen} - 12'd1;
+
+    // ---- shadow (the .sav image), 256 bytes ----
+    reg [7:0] shadow [0:255];
+    assign sv_rd_data = shadow[sv_rd_addr];
+
+    localparam S_IDLE=4'd0, S_ARM=4'd1,
+               S_GA=4'd2,  S_GA_L=4'd3,  S_GB=4'd4, S_GB_L=4'd5,  // gate: first/last byte per region
+               S_INJ=4'd6,                                        // write shadow -> RAM (one byte/cycle)
+               S_SN=4'd7,  S_SN_L=4'd8,                           // read RAM -> shadow
+               S_HOLD=4'd9;
 
     always @(posedge clk) begin
-        seed   <= 1'b0;
-        commit <= 1'b0;
+        if (sv_wr) shadow[sv_wr_addr] <= sv_wr_data;
 
         if (reset) begin
-            state <= S_WAIT; pause <= 1'b0; idx <= 2'd0; timer <= 16'd0; halt <= 1'b0;
-            done <= 1'b0;
+            state <= S_IDLE; pause <= 1'b0;
             hs_access_read <= 1'b0; hs_access_write <= 1'b0; hs_write_enable <= 1'b0;
+            ri <= 2'd0; bi <= 8'd0; sp <= 8'd0; timer <= 16'd0; halt <= 1'b0;
         end else if (ce) begin
             hs_access_read  <= 1'b0;
             hs_access_write <= 1'b0;
             hs_write_enable <= 1'b0;
 
             case (state)
-            S_WAIT: begin
+            S_IDLE: begin
                 pause <= 1'b0;
-                if (loaded && en_paint) begin
-                    if ((shadow[0]==8'hFF) & (shadow[1]==8'hFF) &
-                        (shadow[2]==8'hFF) & (shadow[3]==8'hFF))
-                        seed <= 1'b1;                 // fresh card -> 0
-                    timer <= 16'd2048; state <= S_POLLR;
+                if (loaded && cfg(mod_sel, 2'd0) != {CW{1'b0}}) begin
+                    fresh <= (shadow[0] == 8'hFF);   // first region byte 0xFF => fresh card
+                    timer <= 16'd2048; state <= S_ARM;
                 end
             end
 
-            // --- start gate: boot done + RAM clear past (CPU paused to read) ---
-            S_POLLR: begin pause<=1'b0; if (timer!=0) timer<=timer-16'd1;
-                           else if (vbl) begin halt<=1'b0; state<=S_POLLP; end end
-            S_POLLP: begin pause<=1'b1; if (halt) state<=S_GA_S; halt<=1'b1; end
-            S_GA_S:  begin hs_address<=CHK0_OFF; hs_access_read<=1'b1; state<=S_GA_L; end
-            S_GA_L:  begin if (hs_data_out==8'h40) state<=S_GB_S;
-                           else begin timer<=16'd2048; state<=S_POLLR; end end
-            S_GB_S:  begin hs_address<=CHK1_OFF; hs_access_read<=1'b1; state<=S_GB_L; end
-            S_GB_L:  begin if (hs_data_out==8'h48) state<=S_GC_S;
-                           else begin timer<=16'd2048; state<=S_POLLR; end end
-            S_GC_S:  begin hs_address<=SCORE_OFF; hs_access_read<=1'b1; state<=S_GC_L; end
-            S_GC_L:  begin if (hs_data_out==8'h00) begin timer<=16'd0; state<=S_RUN; end
-                           else begin timer<=16'd2048; state<=S_POLLR; end end
+            // wait a beat (game boots / RAM clears), in vblank, paused
+            S_ARM: begin
+                pause <= 1'b0;
+                if (timer != 0) timer <= timer - 16'd1;
+                else if (vbl) begin halt <= 1'b0; gate_ok <= 1'b1; ri <= 2'd0; state <= S_GA; end
+            end
 
-            // --- run loop: read score each frame ---
-            S_RUN: begin pause<=1'b0; if (timer!=0) timer<=timer-16'd1;
-                         else if (vbl) begin halt<=1'b0; idx<=2'd0; state<=S_RDP; end end
-            S_RDP: begin pause<=1'b1; if (halt) state<=S_RD_S; halt<=1'b1; end
-            S_RD_S: begin hs_address<=SCORE_OFF+{10'd0,idx}; hs_access_read<=1'b1; state<=S_RD_L; end
-            S_RD_L: begin live[idx]<=hs_data_out;
-                          if (idx==2'd3) state<=S_CMP; else begin idx<=idx+2'd1; state<=S_RD_S; end end
-            S_CMP: begin
-                if (gt) commit <= 1'b1;                          // only-increase capture
-                if (done || gt) begin
-                    if (gt) done <= 1'b1;                        // beaten: ROM owns the display now
-                    timer <= RUN_INTERVAL; state <= S_RUN;          // snapshot only from here
-                end else begin                                  // eq/lt: keep the saved score shown
-                    azero <= (shadow[0]==0)&(shadow[1]==0)&(shadow[2]==0);
-                    bc <= 3'd4; sig <= 1'b0; tpos <= 3'd6;
-                    if (!eq) begin idx<=2'd0; state<=S_SEED; end // lt: re-seed the 0x4E88 floor
-                    else state <= S_PAINT;
-                end
-            end
-            S_SEED: begin                                        // 0x4E88 floor = shadow (not pinned)
-                hs_address<=SCORE_OFF+{10'd0,idx}; hs_data_in<=shadow[idx];
-                hs_access_write<=1'b1; hs_write_enable<=1'b1;
-                if (idx==2'd3) state<=S_PAINT; else idx<=idx+2'd1;
-            end
-            S_PAINT: begin                                       // walk the 6 digit tiles MSD..LSD
-                hs_address<=TILE_OFF+{9'd0,tpos};
-                hs_access_write<=1'b1; hs_write_enable<=1'b1;
-                if (azero)             hs_data_in<=8'h40;                 // no high score: blank
-                else if (dig==4'd0 && !sig && bc!=3'd0) begin
-                                       hs_data_in<=8'h40; bc<=bc-3'd1;    // suppressed leading zero
+            // --- gate: every valid region's first byte == sval AND last byte == eval ---
+            S_GA: begin
+                pause <= 1'b1;
+                if (!halt) begin halt <= 1'b1; end          // 1-cycle settle after pause
+                else if (!rv) begin                          // walked all regions
+                    halt <= 1'b0;
+                    if (gate_ok && !fresh) begin ri <= 2'd0; sp <= 8'd0; bi <= 8'd0; state <= S_INJ; end
+                    else if (gate_ok && fresh) begin ri <= 2'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN; end
+                    else begin timer <= 16'd2048; state <= S_ARM; end   // not ready -> re-poll
                 end else begin
-                                       hs_data_in<={4'd0,dig};           // digit glyph 0x00-0x09
-                                       if (dig!=4'd0) sig<=1'b1;
+                    hs_address <= roff; hs_access_read <= 1'b1; state <= S_GA_L;
                 end
-                if (tpos==3'd1) begin timer<=RUN_INTERVAL; state<=S_RUN; end
-                else tpos<=tpos-3'd1;
+            end
+            S_GA_L: begin
+                if (hs_data_out != rsv) gate_ok <= 1'b0;
+                hs_address <= rlast; hs_access_read <= 1'b1; state <= S_GB_L;
+            end
+            S_GB_L: begin
+                if (hs_data_out != rev) gate_ok <= 1'b0;
+                ri <= ri + 2'd1; state <= S_GA; halt <= 1'b1;          // next region (stay settled)
             end
 
-            default: state <= S_WAIT;
+            // --- inject: shadow -> RAM, one byte per cycle, across all regions ---
+            S_INJ: begin
+                pause <= 1'b1;
+                if (!rv) begin ri <= 2'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN; end
+                else begin
+                    hs_address <= roff + {4'd0, bi};
+                    hs_data_in <= shadow[sp];
+                    hs_access_write <= 1'b1; hs_write_enable <= 1'b1;
+                    sp <= sp + 8'd1;
+                    if (bi + 8'd1 == rlen) begin bi <= 8'd0; ri <= ri + 2'd1; end
+                    else bi <= bi + 8'd1;
+                end
+            end
+
+            // --- snapshot: RAM -> shadow, one byte per 2 cycles, across all regions ---
+            S_SN: begin
+                pause <= 1'b1;
+                if (!rv) begin timer <= POLL_INTERVAL; state <= S_HOLD; end
+                else begin hs_address <= roff + {4'd0, bi}; hs_access_read <= 1'b1; state <= S_SN_L; end
+            end
+            S_SN_L: begin
+                shadow[sp] <= hs_data_out; sp <= sp + 8'd1;
+                if (bi + 8'd1 == rlen) begin bi <= 8'd0; ri <= ri + 2'd1; end
+                else bi <= bi + 8'd1;
+                state <= S_SN;
+            end
+
+            // --- hold between snapshots (CPU runs) ---
+            S_HOLD: begin
+                pause <= 1'b0;
+                if (timer != 0) timer <= timer - 16'd1;
+                else if (vbl) begin ri <= 2'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN; end
+            end
+
+            default: state <= S_IDLE;
             endcase
         end
     end

@@ -1,11 +1,10 @@
-// Functional testbench for the hiscore controller.
+// Functional testbench for the generic per-variant hiscore controller.
 // Models the u_rams port-B tap (altsyncram BIDIR: address registered + gated by
-// enable_b, output unregistered -> 1 enabled-clock read latency; write commits
-// on an enabled clock) plus the Pac-Man behaviour the FSM depends on:
-//   * the save loader filling the 4-byte shadow,
-//   * the boot RAM-clear (0x4E88=0) and blank tile field (0x43EC..0x43F2=0x40),
-//   * the "HIGH SCORE" label tile appearing (0x43D1=0x48) after boot.
-// NB 0x43ED is BOTH the gate byte (CHK0) and the LSD tile -- by design.
+// enable_b, output unregistered -> 1 enabled-clock read latency; write commits on
+// an enabled clock). Verifies the NVRAM model: gate (each region first==sval,
+// last==eval) -> inject the saved shadow raw into the region addresses -> snapshot
+// RAM back into the shadow. Covers Pac-Man (mod 0) and Woodpecker (mod 8, different
+// offsets/gate) plus a fresh (0xFF) card skipping inject.
 `timescale 1ns/1ps
 `default_nettype none
 
@@ -15,13 +14,14 @@ module tb_hiscore;
     always @(posedge clk) begin div <= div + 2'd1; ce <= (div == 2'd0); end
 
     reg reset = 1, loaded = 0, vbl = 0;
+    reg [4:0] mod_sel = 0;
     wire [11:0] hs_address;  wire [7:0] hs_data_in;  reg [7:0] hs_data_out;
     wire hs_write_enable, hs_access_read, hs_access_write, pause;
-    reg sv_wr = 0;  reg [3:0] sv_wr_addr = 0;  reg [7:0] sv_wr_data = 0;
-    reg [3:0] sv_rd_addr = 0;  wire [7:0] sv_rd_data;
+    reg sv_wr = 0;  reg [7:0] sv_wr_addr = 0;  reg [7:0] sv_wr_data = 0;
+    reg [7:0] sv_rd_addr = 0;  wire [7:0] sv_rd_data;
 
-    hiscore #(.RUN_INTERVAL(16'd64)) dut (
-        .clk(clk), .ce(ce), .reset(reset), .loaded(loaded), .en_paint(1'b1), .vbl(vbl),
+    hiscore #(.POLL_INTERVAL(16'd64)) dut (
+        .clk(clk), .ce(ce), .reset(reset), .loaded(loaded), .mod_sel(mod_sel), .vbl(vbl),
         .hs_address(hs_address), .hs_data_in(hs_data_in), .hs_data_out(hs_data_out),
         .hs_write_enable(hs_write_enable), .hs_access_read(hs_access_read),
         .hs_access_write(hs_access_write), .pause(pause),
@@ -45,13 +45,23 @@ module tb_hiscore;
     reg [15:0] pause_run = 0; reg pause_stuck = 0;
     always @(posedge clk) begin
         if (pause) pause_run <= pause_run + 16'd1; else pause_run <= 16'd0;
-        if (pause_run > 16'd4000) pause_stuck <= 1'b1;
+        if (pause_run > 16'd6000) pause_stuck <= 1'b1;
     end
 
     task chk(input [11:0] a, input [7:0] exp, input [255:0] name);
         begin
             if (mem[a] !== exp) begin
                 $display("  FAIL %0s: mem[%03x]=%02x exp %02x", name, a, mem[a], exp);
+                fails = fails + 1;
+            end
+        end
+    endtask
+
+    task chk_sh(input [7:0] a, input [7:0] exp, input [255:0] name);
+        begin
+            sv_rd_addr = a; #1;
+            if (sv_rd_data !== exp) begin
+                $display("  FAIL %0s: shadow[%0d]=%02x exp %02x", name, a, sv_rd_data, exp);
                 fails = fails + 1;
             end
         end
@@ -68,68 +78,78 @@ module tb_hiscore;
         end
     endtask
 
-    // boot + load a saved score, fire the gate, settle
-    task restore(input [7:0] b0, input [7:0] b1, input [7:0] b2, input [7:0] b3);
+    task loadshadow(input integer n, input [7:0] seed);
         begin
-            reset = 1; loaded = 0;
-            for (i = 0; i < 4096; i = i + 1) mem[i] = 8'h00;
-            mem[12'h3EC]=8'h40; mem[12'h3ED]=8'h40; mem[12'h3EE]=8'h40; mem[12'h3EF]=8'h40;
-            mem[12'h3F0]=8'h40; mem[12'h3F1]=8'h40; mem[12'h3F2]=8'h40;   // blank field
-            mem[12'h3D1]=8'h00;                                          // label not drawn
-            repeat (20) @(posedge clk);
-            @(negedge clk); sv_wr=1; sv_wr_addr=0; sv_wr_data=b0; @(negedge clk);
-                            sv_wr_addr=1; sv_wr_data=b1; @(negedge clk);
-                            sv_wr_addr=2; sv_wr_data=b2; @(negedge clk);
-                            sv_wr_addr=3; sv_wr_data=b3; @(negedge clk); sv_wr=0;
-            repeat (10) @(posedge clk);
-            reset = 0; loaded = 1;
-            run_frames(4);
-            mem[12'h3D1]=8'h48;                                          // draw label -> gate
-            run_frames(8);
+            @(negedge clk);
+            for (i = 0; i < n; i = i + 1) begin
+                sv_wr = 1; sv_wr_addr = i[7:0]; sv_wr_data = seed + i[7:0]; @(negedge clk);
+            end
+            sv_wr = 0; @(negedge clk);
         end
     endtask
 
     initial begin
-        // ---- scenario 1: 150 (50 01 00 00) -> "   150", full behaviour.
-        // The 6 digit tiles ARE the whole value (no x10 / no trailing zero), so
-        // 0x43EC must NOT be touched (else 150 reads as "1500"). ----
-        $display("[1] restore 150");
-        restore(8'h50,8'h01,8'h00,8'h00);
-        chk(12'hE88,8'h50,"seed lo"); chk(12'hE8B,8'h00,"seed hi");
-        chk(12'h3F2,8'h40,"150 d5"); chk(12'h3F1,8'h40,"150 d4"); chk(12'h3F0,8'h40,"150 d3");
-        chk(12'h3EF,8'h01,"150 d2"); chk(12'h3EE,8'h05,"150 d1"); chk(12'h3ED,8'h00,"150 d0");
-        chk(12'h3EC,8'h40,"150 0x43EC untouched (no trailing zero)");
-        // screen-clear blanks the field -> must repaint
-        mem[12'h3EF]=8'h40; mem[12'h3EE]=8'h40; run_frames(4);
-        chk(12'h3EF,8'h01,"repaint d2"); chk(12'h3EE,8'h05,"repaint d1");
-        // player beats it: ROM writes 200 (00 02 00) + draws its own tiles
-        mem[12'hE88]=8'h00; mem[12'hE89]=8'h02; mem[12'hE8A]=8'h00; mem[12'hE8B]=8'h00;
-        mem[12'h3EE]=8'h02; mem[12'h3EF]=8'h40; mem[12'h3ED]=8'h00; run_frames(4);
-        sv_rd_addr=1; #1; if (sv_rd_data!==8'h02) begin $display("  FAIL: shadow not captured 200 (%02x)",sv_rd_data); fails=fails+1; end
-        mem[12'h3EE]=8'hAA; run_frames(4);            // handed off -> must NOT repaint
-        if (mem[12'h3EE]!==8'hAA) begin $display("  FAIL: still painting after handoff"); fails=fails+1; end
+        // ============ Pac-Man (mod 0) : e88/4, 3ed/6, 3d1/1(gate=48) ============
+        $display("[1] Pac-Man restore (raw region inject)");
+        reset = 1; loaded = 0; mod_sel = 5'd0;
+        for (i = 0; i < 4096; i = i + 1) mem[i] = 8'h00;
+        // default table state so the gate passes
+        for (i = 12'h3ED; i <= 12'h3F2; i = i + 1) mem[i] = 8'h40;   // blank tiles
+        mem[12'h3D1] = 8'h48;                                        // HIGH SCORE label
+        // saved shadow: 11 bytes, 0x10..0x1A
+        repeat (10) @(posedge clk);
+        loadshadow(11, 8'h10);
+        repeat (10) @(posedge clk);
+        reset = 0; loaded = 1;
+        run_frames(12);
+        // region0 e88/4 <- sh0..3 ; region1 3ed/6 <- sh4..9 ; region2 3d1/1 <- sh10
+        chk(12'hE88,8'h10,"pm e88"); chk(12'hE89,8'h11,"pm e89");
+        chk(12'hE8A,8'h12,"pm e8a"); chk(12'hE8B,8'h13,"pm e8b");
+        chk(12'h3ED,8'h14,"pm 3ed"); chk(12'h3EE,8'h15,"pm 3ee"); chk(12'h3EF,8'h16,"pm 3ef");
+        chk(12'h3F0,8'h17,"pm 3f0"); chk(12'h3F1,8'h18,"pm 3f1"); chk(12'h3F2,8'h19,"pm 3f2");
+        chk(12'h3D1,8'h1A,"pm 3d1");
 
-        // ---- scenario 2: zero / no high score -> field all blank (0x40), no "00" ----
-        $display("[2] restore 0 (no high score)");
-        restore(8'h00,8'h00,8'h00,8'h00);
-        chk(12'h3F2,8'h40,"0 d5"); chk(12'h3F1,8'h40,"0 d4"); chk(12'h3F0,8'h40,"0 d3");
-        chk(12'h3EF,8'h40,"0 d2"); chk(12'h3EE,8'h40,"0 d1"); chk(12'h3ED,8'h40,"0 d0");
-        chk(12'h3EC,8'h40,"0 trail");
+        // ---- snapshot: change RAM, expect shadow to follow ----
+        $display("[2] Pac-Man snapshot (RAM -> shadow)");
+        mem[12'hE88] = 8'h99; mem[12'h3F2] = 8'h77;
+        run_frames(6);
+        chk_sh(8'd0, 8'h99, "snap e88->sh0");
+        chk_sh(8'd9, 8'h77, "snap 3f2->sh9");
 
-        // ---- scenario 3: 654320 (stored 65 43 20) -> all 6 digits, no leading blank ----
-        $display("[3] restore 654320");
-        restore(8'h20,8'h43,8'h65,8'h00);
-        chk(12'h3F2,8'h06,"654320 d5=6"); chk(12'h3F1,8'h05,"654320 d4=5");
-        chk(12'h3F0,8'h04,"654320 d3=4"); chk(12'h3EF,8'h03,"654320 d2=3");
-        chk(12'h3EE,8'h02,"654320 d1=2"); chk(12'h3ED,8'h00,"654320 d0=0");
-        chk(12'h3EC,8'h40,"654320 0x43EC untouched");
+        // ============ fresh card (0xFF) : must NOT inject ============
+        $display("[3] Pac-Man fresh card skips inject");
+        reset = 1; loaded = 0; mod_sel = 5'd0;
+        for (i = 0; i < 4096; i = i + 1) mem[i] = 8'h00;
+        for (i = 12'h3ED; i <= 12'h3F2; i = i + 1) mem[i] = 8'h40;
+        mem[12'h3D1] = 8'h48;
+        repeat (10) @(posedge clk);
+        loadshadow(11, 8'hFF);          // 0xFF.. => fresh
+        repeat (10) @(posedge clk);
+        reset = 0; loaded = 1;
+        run_frames(12);
+        chk(12'hE88,8'h00,"fresh e88 untouched"); chk(12'h3ED,8'h40,"fresh 3ed untouched");
 
-        if (pause_stuck) begin $display("  FAIL: pause wedged (CPU frozen)"); fails=fails+1; end
+        // ============ Woodpecker (mod 8) : e88/3, 3ed/6, dda/1(gate=03) ============
+        $display("[4] Woodpecker restore (per-mod offsets)");
+        reset = 1; loaded = 0; mod_sel = 5'd8;
+        for (i = 0; i < 4096; i = i + 1) mem[i] = 8'h00;
+        for (i = 12'h3ED; i <= 12'h3F2; i = i + 1) mem[i] = 8'h40;
+        mem[12'hDDA] = 8'h03;                                        // woodpecker gate byte
+        repeat (10) @(posedge clk);
+        loadshadow(10, 8'h20);          // 10 bytes 0x20..0x29
+        repeat (10) @(posedge clk);
+        reset = 0; loaded = 1;
+        run_frames(12);
+        chk(12'hE88,8'h20,"wp e88"); chk(12'hE89,8'h21,"wp e89"); chk(12'hE8A,8'h22,"wp e8a");
+        chk(12'h3ED,8'h23,"wp 3ed"); chk(12'h3F2,8'h28,"wp 3f2");
+        chk(12'hDDA,8'h29,"wp dda");
+        chk(12'hE8B,8'h00,"wp e8b untouched (len 3)");   // outside the 3-byte region
 
+        if (pause_stuck) begin $display("  FAIL: pause wedged (CPU frozen)"); fails = fails + 1; end
         if (fails==0) $display("==== ALL PASS ===="); else $display("==== %0d FAILS ====", fails);
         $finish;
     end
 
-    initial begin #40000000; $display("TIMEOUT"); $finish; end
+    initial begin #60000000; $display("TIMEOUT"); $finish; end
 endmodule
 `default_nettype wire
