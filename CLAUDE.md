@@ -50,4 +50,11 @@ This repo is **BSD-3-Clause**. Keep it that way:
 
 ## Current state
 
-Milestone 1 (core integration). Milestone 0 done: toolchain proven (clean Quartus build, timing closed), repo + public release + per-file `data.json`. Next in `core_top.v`: regenerate the PLL to ≈24.576 MHz `clk_sys` + native 6.144 MHz pixel clock (matching the MiSTer reference, `ENA_6`=÷4); instantiate `PACMAN` + `data_loader` + `sound_i2s`; map `O_VIDEO` 3:3:2 → `video_rgb`, `O_AUDIO[9:0]` → I2S, `cont1_key` → `in0/in1`; hardcode `mod_ms=1`. See `PLAN.md`.
+Shipping **v1.1.0**. The core is fully integrated and playable on hardware — Pac-Man, Ms. Pac-Man, and the same-board variants (Pac-Man Plus, Club, Birdiy, Mr. TNT, Woodpecker, Eeekk!, Ali Baba, Ponpoko, …) run with video, the 3-voice WSG sound, and DIP options.
+
+v1.1 added (all merged to `main`):
+- **Save states + sleep/wake** — the Pocket "Memories" feature. Full machine-state capture: 4 KB work RAM + the T80 register set + pacman's own timing/IRQ/control latches (`hcnt`/`vcnt`/`control_reg`/`cpu_vec_reg`/`cpu_int_l`/watchdog/sync-bus), with the free-running flops frozen (`ss_freeze`) during the walk so save/restore is coherent. See `SAVESTATES.md`.
+- **Selectable low-pass filter** — OSD cutoff list (Off / 5 / 2.5 / 1.2 kHz / 600 / 300 Hz) modelling the cabinet analog stage; clean-room 10.12 rounded leaky IIR (the value is the IIR shift K).
+- **Flipped-variant edge-stripe fix** and **pause-while-menu/sleep-overlay**.
+
+Known issue: a low-frequency gameplay buzz lives in the Pocket's **analog output path** — present since 1.0.0, absent from digital captures, unaffected by even an aggressive in-core filter; it is not a core-RTL defect. See `PLAN.md`.
