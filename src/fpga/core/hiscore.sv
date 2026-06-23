@@ -110,13 +110,14 @@ module hiscore #(
 
     // FSM state (declared before the cfg unpack below, which reads `ri`)
     reg [3:0]  state;
-    reg [2:0]  ri;       // region index (must reach "past last" = 4 for 4-region games)
+    reg [2:0]  ri;       // region index (reaches "past last" = up to 4)
     reg [7:0]  bi;       // byte index within region
-    reg [7:0]  sp;       // flat shadow pointer
+    reg [7:0]  sp;       // shadow base of the current region
     reg [15:0] timer;
     reg        halt;
-    reg        gate_ok;
+    reg        gate_ok;  // per-region: first byte matched its sval
     reg        fresh;    // .sav has no validity marker -> do not inject
+    reg [3:0]  injected; // per-region one-shot: bit set once region ri has been restored
 
     // current region (combinational unpack of cfg(mod_sel, ri))
     wire [CW-1:0] cw   = cfg(mod_sel, ri);
@@ -126,6 +127,12 @@ module hiscore #(
     wire [7:0]    rsv  = cw[15:8];
     wire [7:0]    rev  = cw[7:0];
     wire [11:0]   rlast = roff + {4'd0, rlen} - 12'd1;
+    // which region indices exist for this mod (bit i = region i valid)
+    wire [CW-1:0] cw0 = cfg(mod_sel, 3'd0);
+    wire [CW-1:0] cw1 = cfg(mod_sel, 3'd1);
+    wire [CW-1:0] cw2 = cfg(mod_sel, 3'd2);
+    wire [CW-1:0] cw3 = cfg(mod_sel, 3'd3);
+    wire [3:0]    valid_mask = {cw3[CW-1], cw2[CW-1], cw1[CW-1], cw0[CW-1]};
 
     // ---- shadow (the .sav image), 256 bytes ----
     reg [7:0] shadow [0:255];
@@ -133,10 +140,10 @@ module hiscore #(
 
     localparam [7:0] MAGIC = 8'h5A;   // .sav validity marker, stored at shadow[255]
     localparam S_IDLE=4'd0, S_ARM=4'd1,
-               S_GA=4'd2,  S_GA_L=4'd3,  S_GB=4'd4, S_GB_L=4'd5,  // gate: first/last byte per region
-               S_INJ=4'd6,                                        // write shadow -> RAM (one byte/cycle)
-               S_SN=4'd7,  S_SN_L=4'd8,                           // read RAM -> shadow
-               S_HOLD=4'd9;
+               S_WALK=4'd2, S_G1=4'd3, S_G2=4'd4,   // per-region gate (first==sval && last==eval)
+               S_RINJ=4'd5,                          // inject one region (shadow -> RAM)
+               S_SN=4'd6,  S_SN_L=4'd7,              // snapshot all regions (RAM -> shadow)
+               S_HOLD=4'd8;
 
     always @(posedge clk) begin
         if (sv_wr) shadow[sv_wr_addr] <= sv_wr_data;
@@ -144,81 +151,86 @@ module hiscore #(
         if (reset) begin
             state <= S_IDLE; pause <= 1'b0;
             hs_access_read <= 1'b0; hs_access_write <= 1'b0; hs_write_enable <= 1'b0;
-            ri <= 2'd0; bi <= 8'd0; sp <= 8'd0; timer <= 16'd0; halt <= 1'b0;
+            ri <= 3'd0; bi <= 8'd0; sp <= 8'd0; timer <= 16'd0; halt <= 1'b0; injected <= 4'd0;
         end else if (ce) begin
             hs_access_read  <= 1'b0;
             hs_access_write <= 1'b0;
             hs_write_enable <= 1'b0;
 
             if (ss_busy && state != S_IDLE && state != S_ARM && state != S_HOLD) begin
-                // a Memory (savestate) op owns the shared work-RAM tap. Abort our
-                // in-flight sequence without latching a read or committing a write
-                // (tap strobes are already cleared above); re-arm once it is done.
-                ri <= 3'd0; sp <= 8'd0; bi <= 8'd0;
-                if (state == S_INJ) begin timer <= 16'd2048; state <= S_ARM; end
-                else state <= S_HOLD;
+                // a Memory (savestate) op owns the shared work-RAM tap. Abort our in-flight
+                // walk/inject without latching a read or committing a write (tap strobes are
+                // already cleared above); re-walk once it is done. injected[] persists, so a
+                // finished region is not redone (an aborted region is, since it was unmarked).
+                ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; timer <= 16'd2048; state <= S_ARM;
             end else
             case (state)
             S_IDLE: begin
                 pause <= 1'b0;
                 if (loaded && cfg(mod_sel, 3'd0) != {CW{1'b0}}) begin
                     fresh <= (shadow[8'd255] != MAGIC);   // no validity marker => never-saved
+                    injected <= 4'd0;
                     timer <= 16'd2048; state <= S_ARM;
                 end
             end
 
-            // wait a beat (game boots / RAM clears), in vblank, paused
+            // wait a beat (game boots / RAM clears), then (re)start a region walk
             S_ARM: begin
                 pause <= 1'b0;
                 if (timer != 0) timer <= timer - 16'd1;
-                else if (vbl && !ss_busy) begin halt <= 1'b0; gate_ok <= 1'b1; ri <= 2'd0; state <= S_GA; end
+                else if (vbl && !ss_busy) begin
+                    ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; halt <= 1'b0;
+                    state <= fresh ? S_SN : S_WALK;       // fresh: snapshot only, never inject
+                end
             end
 
-            // --- gate: every valid region's first byte == sval AND last byte == eval ---
-            S_GA: begin
+            // Walk regions; inject each ONE the moment its own gate holds (first byte==sval
+            // && last byte==eval). The score VALUE region's default is 0 (true at boot), so it
+            // restores immediately; display-tile regions restore once the game has drawn their
+            // frame. Re-walk until every region is injected, then snapshot.
+            S_WALK: begin
                 pause <= 1'b1;
-                if (!halt) begin halt <= 1'b1; end          // 1-cycle settle after pause
-                else if (!rv) begin                          // walked all regions
+                if (!halt) halt <= 1'b1;                              // settle after pause
+                else if (!rv) begin                                  // walked all regions
                     halt <= 1'b0;
-                    if (gate_ok && !fresh) begin ri <= 2'd0; sp <= 8'd0; bi <= 8'd0; state <= S_INJ; end
-                    else if (gate_ok && fresh) begin ri <= 2'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN; end
-                    else begin timer <= 16'd2048; state <= S_ARM; end   // not ready -> re-poll
+                    if (injected == valid_mask) begin ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN; end
+                    else begin timer <= 16'd2048; state <= S_ARM; end  // some not ready yet -> re-walk later
+                end else if (injected[ri[1:0]]) begin
+                    sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1;         // already done -> skip
                 end else begin
-                    hs_address <= roff; hs_access_read <= 1'b1; state <= S_GA_L;
+                    gate_ok <= 1'b1; hs_address <= roff; hs_access_read <= 1'b1; state <= S_G1;
                 end
             end
-            S_GA_L: begin
+            S_G1: begin
                 if (hs_data_out != rsv) gate_ok <= 1'b0;
-                hs_address <= rlast; hs_access_read <= 1'b1; state <= S_GB_L;
+                hs_address <= rlast; hs_access_read <= 1'b1; state <= S_G2;
             end
-            S_GB_L: begin
-                if (hs_data_out != rev) gate_ok <= 1'b0;
-                ri <= ri + 2'd1; state <= S_GA; halt <= 1'b1;          // next region (stay settled)
+            S_G2: begin
+                if (gate_ok && hs_data_out == rev) begin bi <= 8'd0; state <= S_RINJ; end  // ready -> inject
+                else begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; halt <= 1'b1; state <= S_WALK; end
             end
 
-            // --- inject: shadow -> RAM, one byte per cycle, across all regions ---
-            S_INJ: begin
+            // inject region ri: shadow[sp+bi] -> mem[roff+bi]
+            S_RINJ: begin
                 pause <= 1'b1;
-                if (!rv) begin ri <= 2'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN; end
-                else begin
-                    hs_address <= roff + {4'd0, bi};
-                    hs_data_in <= shadow[sp];
-                    hs_access_write <= 1'b1; hs_write_enable <= 1'b1;
-                    sp <= sp + 8'd1;
-                    if (bi + 8'd1 == rlen) begin bi <= 8'd0; ri <= ri + 2'd1; end
-                    else bi <= bi + 8'd1;
-                end
+                hs_address <= roff + {4'd0, bi};
+                hs_data_in <= shadow[sp + bi];
+                hs_access_write <= 1'b1; hs_write_enable <= 1'b1;
+                if (bi + 8'd1 == rlen) begin
+                    injected[ri[1:0]] <= 1'b1;
+                    sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; halt <= 1'b1; state <= S_WALK;
+                end else bi <= bi + 8'd1;
             end
 
-            // --- snapshot: RAM -> shadow, one byte per 2 cycles, across all regions ---
+            // --- snapshot: RAM -> shadow across all regions, then hold (continuous save) ---
             S_SN: begin
                 pause <= 1'b1;
                 if (!rv) begin shadow[8'd255] <= MAGIC; timer <= POLL_INTERVAL; state <= S_HOLD; end
                 else begin hs_address <= roff + {4'd0, bi}; hs_access_read <= 1'b1; state <= S_SN_L; end
             end
             S_SN_L: begin
-                shadow[sp] <= hs_data_out; sp <= sp + 8'd1;
-                if (bi + 8'd1 == rlen) begin bi <= 8'd0; ri <= ri + 2'd1; end
+                shadow[sp + bi] <= hs_data_out;
+                if (bi + 8'd1 == rlen) begin bi <= 8'd0; sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; end
                 else bi <= bi + 8'd1;
                 state <= S_SN;
             end
@@ -227,7 +239,7 @@ module hiscore #(
             S_HOLD: begin
                 pause <= 1'b0;
                 if (timer != 0) timer <= timer - 16'd1;
-                else if (vbl && !ss_busy) begin ri <= 2'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN; end
+                else if (vbl && !ss_busy) begin ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN; end
             end
 
             default: state <= S_IDLE;

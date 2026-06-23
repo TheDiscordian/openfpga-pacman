@@ -154,6 +154,19 @@ module tb_hiscore;
         ss_busy=0; run_frames(6);
         chk_sh(8'd0, 8'hEE, "after ss_busy: snapshot resumes");
 
+        // ===== [7] per-region: value restores at boot even when display tiles aren't ready (Birdiy) =====
+        $display("[7] per-region early value restore (Birdiy)");
+        reset=1; loaded=0; mod_sel=5'd4;
+        for (i=0;i<4096;i=i+1) mem[i]=8'h00;            // value regions 4c29/4d03 default 0 -> gate matches
+        for (i=12'h3ED;i<=12'h3F2;i=i+1) mem[i]=8'hFC;  // display tiles blanked -> gate (30/20) does NOT match
+        repeat(8)@(posedge clk); loadshadow(39, 8'h40, 1'b1); repeat(8)@(posedge clk);
+        reset=0; loaded=1; run_frames(14);
+        chk(12'hC29, 8'h40,        "birdiy value injected at boot (region0)");
+        chk(12'hD03, 8'h40+8'd36,  "birdiy region2 injected at boot");
+        chk(12'h3ED, 8'hFC,        "birdiy display NOT injected yet (tiles still blank)");
+        mem[12'h3ED]=8'h30; mem[12'h3F2]=8'h20; run_frames(10);   // game draws the hiscore frame
+        chk(12'h3ED, 8'h40+8'd30,  "birdiy display injected once its frame is drawn");
+
         if (pause_stuck) begin $display("  FAIL: pause wedged (CPU frozen / ri wrap)"); fails=fails+1; end
         if (fails==0) $display("==== ALL PASS ===="); else $display("==== %0d FAILS ====", fails);
         $finish;
