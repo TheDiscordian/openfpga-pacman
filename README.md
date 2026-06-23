@@ -2,7 +2,7 @@
 
 A hardware-compatible FPGA core of the **Namco Pac-Man arcade board** for the [Analogue Pocket](https://www.analogue.co/pocket). One core covers **Pac-Man**, **Ms. Pac-Man**, and other same-board variants — they all run on identical 1980 Pac-Man hardware, just with different ROMs.
 
-> Status: **playable on hardware** (v1.1.0) — Pac-Man, Ms. Pac-Man, and many same-board variants run on the Pocket, with sound, save states, and sleep/wake.
+> Status: **playable on hardware** (v1.1.0) — Pac-Man, Ms. Pac-Man, and the two speed-up hacks run on the Pocket, with sound, save states, and sleep/wake. Other same-board variants are experimental and not yet hardware-verified.
 
 ## 🎮 What it is
 

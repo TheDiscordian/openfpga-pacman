@@ -62,7 +62,7 @@ Ship zero ROM bytes. The repo carries HDL/bitstream + JSON only. `data.json` dec
 
 ## 8. 🎯 Variant support roadmap
 
-The core decodes 14 Pac-Man-board variants via the mod byte (`core_top.v`); we ship **Pac-Man** (mod 0) and **Ms. Pac-Man** (mod 5). The rest are a **goal** — authoritative ROM recipes are captured in [`tools/variant_recipes.json`](tools/variant_recipes.json) (from the MiSTer Arcade-Pacman MRAs, cross-checked against MAME `pacman.cpp`). None are hardware-verified yet, so they are **not** shipped as playable picker entries. To add one: verify on device, then drop in its `build_roms.py` entry + instance JSON.
+The core decodes 14 Pac-Man-board variants via the mod byte (`core_top.v`); the **verified shipping games** are **Pac-Man** (mod 0), **Ms. Pac-Man** (mod 5), and the two speed-up hacks. The rest currently ship as picker entries (`dist/Assets/pacman/TheDiscordian.PacMan/_variants/`) for testing but are **NOT hardware-verified** — authoritative ROM recipes are in [`tools/variant_recipes.json`](tools/variant_recipes.json) (from the MiSTer Arcade-Pacman MRAs, cross-checked against MAME `pacman.cpp`). A **2026-06-23 on-device pass** found real failures (high-score artifact on Ali Baba/Woodpecker; black screen on Ponpoko + the Van-Van/Birdiy/Dream-Shopper trio; Jump Shot OK) — see [`BOARD_ACCURACY.md`](BOARD_ACCURACY.md). **Before publishing v1.1, fix or pull the failing pickers.** To promote a variant: verify on device, then drop in its `build_roms.py` entry + instance JSON.
 
 | mod | Game | MAME set | Audio | Recipe |
 |----|------|----------|-------|--------|

@@ -82,14 +82,20 @@ Fixes are in PR #4 (`fix/variant-correctness`).
 | Woodpecker | 8 | 90 | — | bonus 5k/10k/15k, cab b6, service b7 | WSG; mrtnt video path |
 | Eeekk! | 9 | 90 | IN0 b7 (P2) / IN1 b6 (P1) | own DSW1 (lives/diff/demo) | WSG; EPOS counter-PAL decrypt (init $09) |
 | Ali Baba | 10 | 90 | **IN0 b6** (hammer) | base-like (0xC9); mystery ports 0x50c0/c1 | WSG; **giant = random "?" effect (table of 16 perms of {1,2,3,4}) — open on-device** |
-| Ponpoko | 11 | **0** (landscape) | IN0 b4 | **active-HIGH** inputs; coin DSW2; lives/bonus reordered | WSG; **fixed + plays upright on-device: ROT0 slot needs clean exact-active 288x224/4:3 (padded 290x226/9:7 tore it apart); gfx confirmed correct via photos** |
+| Ponpoko | 11 | **0** (landscape) | IN0 b4 | **active-HIGH** inputs; coin DSW2; lives/bonus reordered | WSG; **BLACK on-device (2026-06-23): slot 1 declares 288×224 but core drives 290×226 DE → scaler blanks (DE must equal slot dims). Prior "plays upright" claim never verified on a deployed bitstream** |
 | Van-Van Car | 12 | **270** | IN0 b4 | coin top nibble; DSW2=0x00 (else no collision) | **2×SN76496 @ ~1.79 MHz** (was ena_4 4.096 → fixed to ena_1m79); NMI not IRQ |
 | Dream Shopper | 14 | **270** | IN0 b4 | coin top nibble; **DSW2=0x00 (else invuln→infinite-loop freeze)** | AY-3-8910 (ym2149) ports 06/07; NMI |
 | Jump Shot | 16 | 90 | IN1 b5/b6 (shoot; coin-start) | DSW1 fixed 0xDD (time/skin/freeplay) | WSG |
 
 Orientation handled by 3 video.json scaler slots (0=ROT90, 1=ROT0 Ponpoko, 2=ROT270 trio) +
-the APF "Set Scaler Slot" control word, selected by mod. DIP mapping is bit-exact-checked vs MAME
-and iverilog-simulated (23/23 self-checks pass).
+the APF "Set Scaler Slot" control word, selected by mod. **The command word is VERIFIED correct**
+(`core_top.v` `{8'd0, scaler_slot, 13'd0}`, func `[2:0]=000`, slot at `[15:13]`, emitted at the
+`video_de` falling edge) — matches Analogue's Bus Communication spec and the openfpgaOS +
+ericlewis-DonkeyKong shipped cores. **Verified rule: the active `video_de` window must equal the
+selected slot's declared `width`×`height`, else the scaler blanks.** The core drives a BORDER-padded
+290×226 DE for every game, so slot 1's 288×224 declaration mismatches → Ponpoko black (slots 0/2 =
+290×226 match the DE). DIP mapping is bit-exact-checked vs MAME and iverilog-simulated (23/23
+self-checks pass).
 
 ### Variant items still open (on-device or design-decision)
 - **Ali Baba giant** — **user-reported, not independently verified.** Basis is the user's
@@ -99,12 +105,22 @@ and iverilog-simulated (23/23 self-checks pass).
   (IN0 b6, Z80 disasm @ 0xa0f8), ROM bank layout (6l→0x8000, 6m→0xa000), the "?" effect-table
   (@ 0x8040). If the defect is real, the giant-effect *application* is the only remaining suspect;
   needs on-device data or a timed sim to confirm.
-- **Ponpoko — RESOLVED (plays upright on-device).** Two separate things were conflated:
-  (1) gfx — never broken; confirmed correct via photos (a ROT90 probe showed clean tiles/text/
-  sprites), so no descramble was needed. (2) the real bug — our ROT0 slot tore the landscape image
-  apart (stretched, random black gaps) because it declared our **padded 290x226 / 9:7**. The
-  rotated slots tolerate that padding; ROT0 does not. Fix: slot 1 now declares **clean exact-active
-  288x224 / 4:3** — the way working landscape Pocket cores (e.g. Neo Geo, 304/320x224 ROT0) feed
-  the scaler. `video.json`-only, no bitstream rebuild (core already routes ponp → slot 1).
-- **Round-3 bitstream** — built, **not yet deployed** (SD was unmounted).
-- All gameplay confirmation of rounds 1–3 — hardware-pending.
+- **Ali Baba / Woodpecker high-score artifact** — `hiscore.sv` is a Pac-Man-specific glyph *painter*
+  (hardcoded offsets `0x4E88`/`0x43ED`/`0x43D1`, Pac-Man digit glyphs), instantiated once in
+  `core_top.v` with **no mod input**, so it runs on every variant and corrupts the high-score area on
+  non-Pac-Man ROMs. Fix: gate seed/paint to a Pac-Man-family allow-list (small RTL); non-allowed mods
+  run snapshot-only.
+- **Ponpoko black screen** — slot 1 declares 288×224 but the core drives a 290×226 DE → scaler blanks.
+  The prior "RESOLVED / plays upright" claim was **wrong**: the round-3 bitstream was never deployed, and
+  the ROT90 probe (slot 1 = a duplicate of slot 0) could not tell a real slot-switch from a silent
+  fallback. Fix: make Ponpoko's DE window 288×224 (match slot 1), or declare slot 1 at the 290×226 DE
+  size — needs on-device confirmation (the git history's contradictory 288 vs 290 observations came from
+  bitstreams that were never reliably deployed).
+- **Van-Van Car / Birdiy / Dream Shopper black screen** — slot 2 (290×226) already matches the DE and
+  the RTL/recipes are faithful (byte-identical to MiSTer where relevant); cause **not isolable from
+  static analysis**. Needs on-device A-B.
+- **Set Scaler Slot command** — VERIFIED correct (see the scaler note above); **not** the cause of any
+  black screen.
+- **v1.1.0 bitstream** — built and deployed to the SD on **2026-06-23** for this test pass (md5
+  `4c95713c`).
+- Gameplay confirmation of the variants — hardware-pending; most variants still failing as above.
