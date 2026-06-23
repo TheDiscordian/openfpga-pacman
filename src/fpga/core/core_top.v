@@ -1081,14 +1081,17 @@ mf_pllbase mp1 (
     assign savestate_load_ok    = ss_load_ok_74[2];
     assign savestate_load_err   = 1'b0;
 
-    // Continuously report the save slot's size so the Pocket reads back 4 bytes
-    // on flush (data_slots index 2 = Game, ROM, Save -> size word at 2*2+1 = 5).
-    reg [31:0] dt_data = 32'd4;
+    // Continuously report the save slot's size so the Pocket flushes the FULL
+    // high-score NVRAM: 256 bytes, matching data.json size_maximum and the 256-byte
+    // shadow (incl. the validity marker at byte 255). data_slots index 2 (Game, ROM,
+    // Save) -> size word at 2*2+1 = 5. (Was 32'd4 for the old Pac-Man-only format,
+    // which truncated the marker + score regions so the .sav never restored.)
+    reg [31:0] dt_data = 32'd256;
     reg [9:0]  dt_addr = 10'd5;
     reg        dt_wren = 1'b0;
     always @(posedge clk_74a) begin
         dt_addr <= 10'd5;
-        dt_data <= 32'd4;
+        dt_data <= 32'd256;
         dt_wren <= 1'b1;
     end
     assign datatable_addr = dt_addr;
