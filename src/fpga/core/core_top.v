@@ -572,13 +572,12 @@ assign video_hs = vidout_hs;
     // The APF "Set Scaler Slot" control word is emitted on video_rgb at the DE
     // falling edge (func code [2:0]=000, slot in the low bits of the [23:13]
     // parameter field); takes effect next frame.
-    // DIAGNOSTIC (round 4): the birdiy/van/dshop trio is black on-device at slot 2
-    // (ROT270, 290x226 — which already matches the DE, so the dimension rule does not
-    // explain it). Temporarily route them to slot 0 (the known-good Pac-Man slot) to
-    // isolate the cause: if they then render (rotated wrong, but visible) the ROT270
-    // slot-switch is at fault; if still black, the cause is the game/video path, not the
-    // scaler. Revert the trio to 3'd2 once isolated.
-    wire [2:0] scaler_slot = mod_ponp ? 3'd1 : 3'd0;   // trio was: ... ? 3'd2 : 3'd0
+    // Rotation strategy: the birdiy/van/dshop trio sits 180 deg from Pac-Man (they were
+    // assigned ROT270 vs Pac-Man's ROT90). Rather than a second rotated scaler slot (the
+    // ROT270 slot black-screened on device), render them on the known-good slot 0 (ROT90)
+    // and apply the RTL 180 deg cocktail flip (flip_screen below): ROT90 . flip180 == ROT270.
+    // Only Ponpoko is a true 90 deg case (landscape) that still needs its own ROT0 slot 1.
+    wire [2:0] scaler_slot = mod_ponp ? 3'd1 : 3'd0;
 
     // Birdiy/Van-Van/Dream Shopper run the picture flipped; under flip the content
     // overruns its active window by 1px and leaks a colored stripe at the left edge
@@ -1268,7 +1267,7 @@ mf_pllbase mp1 (
         .mod_alib (mod_alib), .mod_ponp (mod_ponp | mod_van | mod_dshop),
         .mod_van (mod_van | mod_dshop), .mod_dshop (mod_dshop),
         .mod_club (mod_club),
-        .flip_screen (1'b0), .h_offset (3'd0), .v_offset (3'd0),
+        .flip_screen (flip_trio), .h_offset (3'd0), .v_offset (3'd0),
         .dn_addr (ioctl_addr), .dn_data (ioctl_data), .dn_wr (ioctl_wr),
         .pause (hs_pause),
         .hs_address (hs_addr), .hs_data_in (hs_din), .hs_data_out (hs_dout),
