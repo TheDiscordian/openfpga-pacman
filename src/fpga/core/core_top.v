@@ -579,13 +579,11 @@ assign video_hs = vidout_hs;
     // Only Ponpoko is a true 90 deg case (landscape) that still needs its own ROT0 slot 1.
     wire [2:0] scaler_slot = mod_ponp ? 3'd1 : 3'd0;
 
-    // Birdiy/Van-Van/Dream Shopper run the picture flipped; under flip the content
-    // overruns its active window by 1px and leaks a colored stripe at the left edge
-    // (the 1px border masks the un-flipped side only). Blank the outermost active
-    // column on both H edges for these games so the leak is always covered -- border
-    // and DE dimensions are unchanged, so no clip and no video.json change.
+    // Birdiy/Van-Van/Dream Shopper render 180-flipped via the RTL cocktail flip
+    // (flip_screen below) on the ROT90 scaler slot. (An earlier edge-column blank here
+    // masked a 1px stripe from the OLD scaler-ROT270 method; that method is gone, so the
+    // blank only clipped a real content column instead -> Birdiy's "top line cut off".)
     wire flip_trio  = mod_bird | mod_van | mod_dshop;
-    wire h_edge_col = (hcnt == h_start) | (hcnt + 10'd1 == h_end);
 
     // Ponpoko (ROT0 slot 1) declares exact-active 288x224; drop the 1px border for it so
     // the DE window equals that. The Pocket scaler blanks when the active DE window does
@@ -593,14 +591,8 @@ assign video_hs = vidout_hs;
     // slot 1's 288x224 vs the padded 290x226 DE showed black. Every other game keeps the
     // border (DE 290x226 = its slot's declared dims).
     wire [9:0] de_bdr = mod_ponp ? 10'd0 : BORDER;
-    // The auto-detected V window sits one line low vs a symmetric border (0 top / 2 bottom
-    // in source coords). Unflipped games never notice, but the trio runs the picture
-    // 180-flipped, which moves that asymmetry to the TOP -> the top pixel line is clipped
-    // (visible on Birdiy, whose content reaches the edge). Shift the trio's V window up one
-    // line so the border is symmetric; height (226) is unchanged, so no scaler mismatch.
-    wire [9:0] vsh = flip_trio ? 10'd1 : 10'd0;
     wire in_window = (hcnt + de_bdr >= h_start) && (hcnt + 10'd1 <= h_end + de_bdr) &&
-                     (vcnt + de_bdr + vsh >= v_start + 10'd1) && (vcnt + vsh <= v_end + de_bdr);
+                     (vcnt + de_bdr >= v_start + 10'd1) && (vcnt <= v_end + de_bdr);
 
     // Pac-Man color DAC: the PROM bits drive a resistor ladder (R/G via
     // 1000/470/220 ohm, B via 470/220 ohm), not a binary-weighted DAC. These
@@ -648,7 +640,7 @@ always @(posedge clk_pix) begin
     vidout_vs   <= core_vsync;
     vidout_de   <= in_window;
     if (in_window)
-        vidout_rgb <= (core_hblank | core_vblank | (flip_trio & h_edge_col)) ? 24'h0 :
+        vidout_rgb <= (core_hblank | core_vblank) ? 24'h0 :
                       { dac_rg(core_r), dac_rg(core_g), dac_b(core_b) };
     else if (in_window_d)            // DE falling edge -> scaler slot select
         vidout_rgb <= { 8'd0, scaler_slot, 13'd0 };  // [2:0]=000 Set Scaler Slot
