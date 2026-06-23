@@ -19,13 +19,14 @@ module tb_hiscore;
 
     reg reset = 1, loaded = 0, vbl = 0;
     reg [4:0] mod_sel = 0;
+    reg ss_busy = 0;
     wire [11:0] hs_address;  wire [7:0] hs_data_in;  reg [7:0] hs_data_out;
     wire hs_write_enable, hs_access_read, hs_access_write, pause;
     reg sv_wr = 0;  reg [7:0] sv_wr_addr = 0;  reg [7:0] sv_wr_data = 0;
     reg [7:0] sv_rd_addr = 0;  wire [7:0] sv_rd_data;
 
     hiscore #(.POLL_INTERVAL(16'd64)) dut (
-        .clk(clk), .ce(ce), .reset(reset), .loaded(loaded), .mod_sel(mod_sel), .vbl(vbl),
+        .clk(clk), .ce(ce), .reset(reset), .loaded(loaded), .mod_sel(mod_sel), .ss_busy(ss_busy), .vbl(vbl),
         .hs_address(hs_address), .hs_data_in(hs_data_in), .hs_data_out(hs_data_out),
         .hs_write_enable(hs_write_enable), .hs_access_read(hs_access_read),
         .hs_access_write(hs_access_write), .pause(pause),
@@ -141,6 +142,17 @@ module tb_hiscore;
         chk(12'hE88,8'h20,"wp e88"); chk(12'hE8A,8'h22,"wp e8a");
         chk(12'h3ED,8'h23,"wp 3ed"); chk(12'hDDA,8'h29,"wp dda");
         chk(12'hE8B,8'h00,"wp e8b untouched (len 3)");
+
+        // ===== [6] savestate interlock: ss_busy stalls snapshot (no tap collision) =====
+        $display("[6] savestate interlock");
+        reset=1; loaded=0; mod_sel=5'd0; pacman_default;
+        repeat(8)@(posedge clk); loadshadow(11, 8'h10, 1'b1); repeat(8)@(posedge clk);
+        reset=0; loaded=1; run_frames(12);          // settled, snapshotting (shadow[0]=mem[e88]=10)
+        ss_busy=1; mem[12'hE88]=8'hEE;              // a Memory op owns the tap + changes RAM
+        run_frames(6);
+        chk_sh(8'd0, 8'h10, "ss_busy: snapshot stalled (no garbage latched)");
+        ss_busy=0; run_frames(6);
+        chk_sh(8'd0, 8'hEE, "after ss_busy: snapshot resumes");
 
         if (pause_stuck) begin $display("  FAIL: pause wedged (CPU frozen / ri wrap)"); fails=fails+1; end
         if (fails==0) $display("==== ALL PASS ===="); else $display("==== %0d FAILS ====", fails);

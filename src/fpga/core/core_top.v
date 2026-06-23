@@ -808,7 +808,7 @@ mf_pllbase mp1 (
     );
     hiscore hi (
         .clk (clk_sys), .ce (ce_6m), .reset (core_reset), .loaded (dl_complete_s),
-        .mod_sel (mod_reg[4:0]), .vbl (core_vblank),
+        .mod_sel (mod_reg[4:0]), .ss_busy (ss_active), .vbl (core_vblank),
         .hs_address (hsi_addr), .hs_data_in (hsi_din), .hs_data_out (hs_dout),
         .hs_write_enable (hsi_wen), .hs_access_read (hsi_rd), .hs_access_write (hsi_wr_acc),
         .pause (hsi_pause),
@@ -1263,7 +1263,7 @@ mf_pllbase mp1 (
         .mod_club (mod_club),
         .flip_screen (flip_trio), .h_offset (3'd0), .v_offset (3'd0),
         .dn_addr (ioctl_addr), .dn_data (ioctl_data), .dn_wr (ioctl_wr),
-        .pause (hs_pause),
+        .pause (core_pause),
         .hs_address (hs_addr), .hs_data_in (hs_din), .hs_data_out (hs_dout),
         .hs_write_enable (hs_wen), .hs_access_read (hs_rd), .hs_access_write (hs_wr_acc),
         .ss_cpu_idx (ss_cpu_idx), .ss_cpu_dout (ss_cpu_dout), .ss_cpu_bndry (ss_cpu_bndry),

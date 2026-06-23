@@ -35,6 +35,7 @@ module hiscore #(
     input  wire        loaded,
     input  wire        vbl,
     input  wire [4:0]  mod_sel,     // MiSTer mod number; selects the per-game region table
+    input  wire        ss_busy,     // a Memory (savestate) op owns the shared work-RAM tap
 
     output reg  [11:0] hs_address,
     output reg  [7:0]  hs_data_in,
@@ -149,6 +150,14 @@ module hiscore #(
             hs_access_write <= 1'b0;
             hs_write_enable <= 1'b0;
 
+            if (ss_busy && state != S_IDLE && state != S_ARM && state != S_HOLD) begin
+                // a Memory (savestate) op owns the shared work-RAM tap. Abort our
+                // in-flight sequence without latching a read or committing a write
+                // (tap strobes are already cleared above); re-arm once it is done.
+                ri <= 3'd0; sp <= 8'd0; bi <= 8'd0;
+                if (state == S_INJ) begin timer <= 16'd2048; state <= S_ARM; end
+                else state <= S_HOLD;
+            end else
             case (state)
             S_IDLE: begin
                 pause <= 1'b0;
@@ -162,7 +171,7 @@ module hiscore #(
             S_ARM: begin
                 pause <= 1'b0;
                 if (timer != 0) timer <= timer - 16'd1;
-                else if (vbl) begin halt <= 1'b0; gate_ok <= 1'b1; ri <= 2'd0; state <= S_GA; end
+                else if (vbl && !ss_busy) begin halt <= 1'b0; gate_ok <= 1'b1; ri <= 2'd0; state <= S_GA; end
             end
 
             // --- gate: every valid region's first byte == sval AND last byte == eval ---
@@ -218,7 +227,7 @@ module hiscore #(
             S_HOLD: begin
                 pause <= 1'b0;
                 if (timer != 0) timer <= timer - 16'd1;
-                else if (vbl) begin ri <= 2'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN; end
+                else if (vbl && !ss_busy) begin ri <= 2'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN; end
             end
 
             default: state <= S_IDLE;
