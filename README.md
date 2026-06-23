@@ -2,11 +2,17 @@
 
 A hardware-compatible FPGA core of the **Namco Pac-Man arcade board** for the [Analogue Pocket](https://www.analogue.co/pocket). One core covers **Pac-Man**, **Ms. Pac-Man**, and other same-board variants — they all run on identical 1980 Pac-Man hardware, just with different ROMs.
 
-> Status: **playable on hardware** (v1.0.1) — Pac-Man, Ms. Pac-Man, and their speed-hack variants run on the Pocket, with sound.
+> Status: **playable on hardware** (v1.1.0) — Pac-Man, Ms. Pac-Man, and many same-board variants run on the Pocket, with sound, save states, and sleep/wake.
 
 ## 🎮 What it is
 
 The core is a faithful gateware implementation of the Pac-Man hardware: a Z80 @ 3.072 MHz, the Namco tilemap + 8-sprite video, the 3-voice Namco WSG sound, and the palette PROMs. Pac-Man's vertical cabinet is handled by the Pocket's scaler (portrait rotation), not in logic.
+
+## ✨ Features
+
+- **Save states & sleep/wake** — the Pocket's Memories feature: capture and restore the exact machine state; sleep/resume rides the same path.
+- **Selectable low-pass filter** — optional modelling of the cabinet's analog output stage (Off / 5 / 2.5 / 1.2 kHz / 600 / 300 Hz) in the core options.
+- **DIP options in the menu** — Coinage, Lives, Bonus Life, Difficulty.
 
 ## 🎮 Games
 
