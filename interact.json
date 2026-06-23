@@ -43,6 +43,19 @@
                     { "value": "0x00", "name": "Hard" },
                     { "value": "0x01", "name": "Normal" }
                 ]
+            },
+            {
+                "name": "Low-Pass Filter", "id": "0x05", "type": "list",
+                "enabled": true, "persist": true,
+                "address": "0x50000014", "defaultval": "0x01",
+                "options": [
+                    { "value": "0x00", "name": "Off" },
+                    { "value": "0x01", "name": "5 kHz" },
+                    { "value": "0x02", "name": "2.5 kHz" },
+                    { "value": "0x03", "name": "1.2 kHz" },
+                    { "value": "0x04", "name": "600 Hz" },
+                    { "value": "0x05", "name": "300 Hz" }
+                ]
             }
         ],
         "messages": []
