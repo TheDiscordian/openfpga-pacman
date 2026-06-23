@@ -42,6 +42,9 @@ module hiscore #(
     input  wire        ce,
     input  wire        reset,
     input  wire        loaded,
+    input  wire        en_paint,   // 1 = Pac-Man-family layout: seed/paint the saved score.
+                                   // 0 = other variant: stay idle (the offsets/glyphs below are
+                                   // Pac-Man-specific and would paint garbage into its high-score area).
     input  wire        vbl,
 
     output reg  [11:0] hs_address,
@@ -128,7 +131,7 @@ module hiscore #(
             case (state)
             S_WAIT: begin
                 pause <= 1'b0;
-                if (loaded) begin
+                if (loaded && en_paint) begin
                     if ((shadow[0]==8'hFF) & (shadow[1]==8'hFF) &
                         (shadow[2]==8'hFF) & (shadow[3]==8'hFF))
                         seed <= 1'b1;                 // fresh card -> 0

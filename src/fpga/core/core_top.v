@@ -572,8 +572,13 @@ assign video_hs = vidout_hs;
     // The APF "Set Scaler Slot" control word is emitted on video_rgb at the DE
     // falling edge (func code [2:0]=000, slot in the low bits of the [23:13]
     // parameter field); takes effect next frame.
-    wire [2:0] scaler_slot = mod_ponp                          ? 3'd1 :
-                             (mod_bird | mod_van | mod_dshop)  ? 3'd2 : 3'd0;
+    // DIAGNOSTIC (round 4): the birdiy/van/dshop trio is black on-device at slot 2
+    // (ROT270, 290x226 — which already matches the DE, so the dimension rule does not
+    // explain it). Temporarily route them to slot 0 (the known-good Pac-Man slot) to
+    // isolate the cause: if they then render (rotated wrong, but visible) the ROT270
+    // slot-switch is at fault; if still black, the cause is the game/video path, not the
+    // scaler. Revert the trio to 3'd2 once isolated.
+    wire [2:0] scaler_slot = mod_ponp ? 3'd1 : 3'd0;   // trio was: ... ? 3'd2 : 3'd0
 
     // Birdiy/Van-Van/Dream Shopper run the picture flipped; under flip the content
     // overruns its active window by 1px and leaks a colored stripe at the left edge
@@ -583,8 +588,14 @@ assign video_hs = vidout_hs;
     wire flip_trio  = mod_bird | mod_van | mod_dshop;
     wire h_edge_col = (hcnt == h_start) | (hcnt + 10'd1 == h_end);
 
-    wire in_window = (hcnt + BORDER >= h_start) && (hcnt + 10'd1 <= h_end + BORDER) &&
-                     (vcnt + BORDER >= v_start + 10'd1) && (vcnt <= v_end + BORDER);
+    // Ponpoko (ROT0 slot 1) declares exact-active 288x224; drop the 1px border for it so
+    // the DE window equals that. The Pocket scaler blanks when the active DE window does
+    // not match the selected slot's declared width x height (verified rule), which is why
+    // slot 1's 288x224 vs the padded 290x226 DE showed black. Every other game keeps the
+    // border (DE 290x226 = its slot's declared dims).
+    wire [9:0] de_bdr = mod_ponp ? 10'd0 : BORDER;
+    wire in_window = (hcnt + de_bdr >= h_start) && (hcnt + 10'd1 <= h_end + de_bdr) &&
+                     (vcnt + de_bdr >= v_start + 10'd1) && (vcnt <= v_end + de_bdr);
 
     // Pac-Man color DAC: the PROM bits drive a resistor ladder (R/G via
     // 1000/470/220 ohm, B via 470/220 ohm), not a binary-weighted DAC. These
@@ -797,7 +808,8 @@ mf_pllbase mp1 (
         .read_en (), .read_addr (hs_sv_rd_addr), .read_data (hs_sv_rd_data)
     );
     hiscore hi (
-        .clk (clk_sys), .ce (ce_6m), .reset (core_reset), .loaded (dl_complete_s), .vbl (core_vblank),
+        .clk (clk_sys), .ce (ce_6m), .reset (core_reset), .loaded (dl_complete_s),
+        .en_paint (pacman_family), .vbl (core_vblank),
         .hs_address (hsi_addr), .hs_data_in (hsi_din), .hs_data_out (hs_dout),
         .hs_write_enable (hsi_wen), .hs_access_read (hsi_rd), .hs_access_write (hsi_wr_acc),
         .pause (hsi_pause),
@@ -1143,6 +1155,12 @@ mf_pllbase mp1 (
     wire mod_dshop = (mod_reg == 8'd14);
     wire mod_glob  = (mod_reg == 8'd15);
     wire mod_jmpst = (mod_reg == 8'd16);
+
+    // hiscore.sv paints Pac-Man-specific glyphs at Pac-Man work-RAM offsets; only the
+    // Pac-Man family (mod 0 Pac-Man, mod 5 Ms. Pac-Man, + the speedups) shares that
+    // layout. Other variants run the overlay idle (snapshot-only) so it never paints
+    // garbage into their high-score area.
+    wire pacman_family = (mod_reg == 8'd0) | (mod_reg == 8'd5);
 
     // Per-mod IN0/IN1. Default = base Pac-Man (active-low, no action button).
     // Variant action-button bits and Ponpoko's active-high polarity come from

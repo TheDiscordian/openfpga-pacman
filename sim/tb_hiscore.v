@@ -21,7 +21,7 @@ module tb_hiscore;
     reg [3:0] sv_rd_addr = 0;  wire [7:0] sv_rd_data;
 
     hiscore #(.RUN_INTERVAL(16'd64)) dut (
-        .clk(clk), .ce(ce), .reset(reset), .loaded(loaded), .vbl(vbl),
+        .clk(clk), .ce(ce), .reset(reset), .loaded(loaded), .en_paint(1'b1), .vbl(vbl),
         .hs_address(hs_address), .hs_data_in(hs_data_in), .hs_data_out(hs_data_out),
         .hs_write_enable(hs_write_enable), .hs_access_read(hs_access_read),
         .hs_access_write(hs_access_write), .pause(pause),
