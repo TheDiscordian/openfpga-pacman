@@ -593,8 +593,14 @@ assign video_hs = vidout_hs;
     // slot 1's 288x224 vs the padded 290x226 DE showed black. Every other game keeps the
     // border (DE 290x226 = its slot's declared dims).
     wire [9:0] de_bdr = mod_ponp ? 10'd0 : BORDER;
+    // The auto-detected V window sits one line low vs a symmetric border (0 top / 2 bottom
+    // in source coords). Unflipped games never notice, but the trio runs the picture
+    // 180-flipped, which moves that asymmetry to the TOP -> the top pixel line is clipped
+    // (visible on Birdiy, whose content reaches the edge). Shift the trio's V window up one
+    // line so the border is symmetric; height (226) is unchanged, so no scaler mismatch.
+    wire [9:0] vsh = flip_trio ? 10'd1 : 10'd0;
     wire in_window = (hcnt + de_bdr >= h_start) && (hcnt + 10'd1 <= h_end + de_bdr) &&
-                     (vcnt + de_bdr >= v_start + 10'd1) && (vcnt <= v_end + de_bdr);
+                     (vcnt + de_bdr + vsh >= v_start + 10'd1) && (vcnt + vsh <= v_end + de_bdr);
 
     // Pac-Man color DAC: the PROM bits drive a resistor ladder (R/G via
     // 1000/470/220 ohm, B via 470/220 ohm), not a binary-weighted DAC. These
