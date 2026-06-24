@@ -5,6 +5,30 @@ sim `sim/tb_hiscore.v`). It exists so the per-game reverse-engineering below doe
 **not** have to be re-done from scratch. If you touch the engine or add a variant,
 update this file.
 
+## ⚠️ Read this first — the trap (it has caught every game so far)
+
+Every single game has dragged me through the same wrong loop. Do **not** repeat it:
+
+1. Skim the ROM, find the high-score draw gated behind a "did the player beat it?"
+   compare, and conclude **"the high score is only drawn when beaten"**. This is
+   almost always WRONG — the boards (Pac-Man and its variants) draw the high score
+   at **boot/attract** so the player can see what to beat.
+2. Decide the engine must therefore **paint the digits itself** (a custom glyph
+   painter / BCD→tile renderer). This is a dead-end — it's fragile and it's not how
+   any of these games actually work.
+3. Burn cycles, then finally land on the real fix.
+
+**The real fix, for every game: restore the high-score DATA at the right time and
+let the GAME draw it.** The data is the value cell (and the tile row if the game
+keeps a persistent one). "The right time" = *after* the game's boot clear/blank,
+which is exactly what the boot-clear-wipe protection (`scan_uni`/`S_ZS`) handles.
+The game's own screen-setup then paints the number from the restored data. Pac-Man
+was fixed this way after the painter detour; apply it directly to the rest.
+
+So when a game "doesn't show its high score", the question is **not** "should we
+paint it?" — it's "which RAM does the boot/attract draw read, and are we restoring
+exactly that, at the right time?" Find the boot draw (not just the beat draw).
+
 ## What it does
 
 The original boards keep the high score in battery-free work RAM (0x4000–0x4FFF),
