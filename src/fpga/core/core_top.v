@@ -1161,6 +1161,7 @@ mf_pllbase mp1 (
     // each game's MAME-reverse-engineered board map (no variant schematics exist):
     //   alibaba  IN0 b6 = hammer        van/dshop IN0 b4 = action
     //   eeekk    IN0 b7 = P2, IN1 b6 = P1   birdiy IN1 b4 = P1, b7 = P2
+    //   mrtnt    IN1 b4 = speed (BUTTON1; also enters high-score initials)
     //   jumpshot IN1 b5 = P1, b6 = P2 shoot (no start; coin-start)
     //   ponpoko  whole port active-high; IN0 b4 = button; coins stay active-low
     //   club     P1 from cont1, P2 from cont2 (its input mux reads each separately)
@@ -1174,6 +1175,7 @@ mf_pllbase mp1 (
             mod_dshop: pac_in0[4] = ~m_btn;
             mod_eeek:  begin pac_in0[7] = ~m_btn_2; pac_in1[6] = ~m_btn; end
             mod_bird:  begin pac_in1[4] = ~m_btn;   pac_in1[7] = ~m_btn_2; end
+            mod_mrtnt: pac_in1[4] = ~m_btn;         // BUTTON1 = speed / high-score initials
             mod_jmpst: begin pac_in1[5] = ~m_btn;   pac_in1[6] = ~m_btn_2; end
             mod_ponp:  begin
                 pac_in0 = { 1'b1, 1'b1, ~m_coin, m_btn, m_down, m_right, m_left, m_up };
