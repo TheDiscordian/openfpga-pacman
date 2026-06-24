@@ -127,13 +127,6 @@ module hiscore #(
     wire [7:0]    rsv  = cw[15:8];
     wire [7:0]    rev  = cw[7:0];
     wire [11:0]   rlast = roff + {4'd0, rlen} - 12'd1;
-    // which region indices exist for this mod (bit i = region i valid)
-    wire [CW-1:0] cw0 = cfg(mod_sel, 3'd0);
-    wire [CW-1:0] cw1 = cfg(mod_sel, 3'd1);
-    wire [CW-1:0] cw2 = cfg(mod_sel, 3'd2);
-    wire [CW-1:0] cw3 = cfg(mod_sel, 3'd3);
-    wire [3:0]    valid_mask = {cw3[CW-1], cw2[CW-1], cw1[CW-1], cw0[CW-1]};
-
     // ---- shadow (the .sav image), 256 bytes ----
     reg [7:0] shadow [0:255];
     assign sv_rd_data = shadow[sv_rd_addr];
@@ -179,24 +172,23 @@ module hiscore #(
                 pause <= 1'b0;
                 if (timer != 0) timer <= timer - 16'd1;
                 else if (vbl && !ss_busy) begin
-                    ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; halt <= 1'b0;
-                    state <= fresh ? S_SN : S_WALK;       // fresh: snapshot only, never inject
+                    ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; halt <= 1'b0; state <= S_WALK;
                 end
             end
 
-            // Walk regions; inject each ONE the moment its own gate holds (first byte==sval
-            // && last byte==eval). The score VALUE region's default is 0 (true at boot), so it
-            // restores immediately; display-tile regions restore once the game has drawn their
-            // frame. Re-walk until every region is injected, then snapshot.
+            // Each poll: walk the regions, inject each ONE the moment its own gate holds (first
+            // byte==sval && last byte==eval) -- the score VALUE region's default is 0 (true at
+            // boot) so it restores immediately, display-tile regions restore once the game has
+            // drawn their frame -- then ALWAYS snapshot. Snapshot does NOT wait for every region
+            // to be restorable, so a remapped variant whose display tiles never hit the gate (e.g.
+            // Ali Baba) still saves its score every poll.
             S_WALK: begin
                 pause <= 1'b1;
                 if (!halt) halt <= 1'b1;                              // settle after pause
-                else if (!rv) begin                                  // walked all regions
-                    halt <= 1'b0;
-                    if (injected == valid_mask) begin ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN; end
-                    else begin timer <= 16'd2048; state <= S_ARM; end  // some not ready yet -> re-walk later
+                else if (!rv) begin                                  // walked all regions -> snapshot
+                    halt <= 1'b0; ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN;
                 end else if (injected[ri[1:0]]) begin
-                    sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1;         // already done -> skip
+                    sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1;         // already restored -> skip
                 end else begin
                     gate_ok <= 1'b1; hs_address <= roff; hs_access_read <= 1'b1; state <= S_G1;
                 end
@@ -206,7 +198,7 @@ module hiscore #(
                 hs_address <= rlast; hs_access_read <= 1'b1; state <= S_G2;
             end
             S_G2: begin
-                if (gate_ok && hs_data_out == rev) begin bi <= 8'd0; state <= S_RINJ; end  // ready -> inject
+                if (!fresh && gate_ok && hs_data_out == rev) begin bi <= 8'd0; state <= S_RINJ; end  // ready + real save -> inject
                 else begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; halt <= 1'b1; state <= S_WALK; end
             end
 
@@ -226,6 +218,7 @@ module hiscore #(
             S_SN: begin
                 pause <= 1'b1;
                 if (!rv) begin shadow[8'd255] <= MAGIC; timer <= POLL_INTERVAL; state <= S_HOLD; end
+                else if (!fresh && !injected[ri[1:0]]) begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; end  // saved-but-not-yet-restored -> keep its loaded save; a fresh card snapshots all (nothing to preserve)
                 else begin hs_address <= roff + {4'd0, bi}; hs_access_read <= 1'b1; state <= S_SN_L; end
             end
             S_SN_L: begin
@@ -235,11 +228,11 @@ module hiscore #(
                 state <= S_SN;
             end
 
-            // --- hold between snapshots (CPU runs) ---
+            // --- hold between polls (CPU runs); next poll re-walks (inject newly-ready) + snapshots ---
             S_HOLD: begin
                 pause <= 1'b0;
                 if (timer != 0) timer <= timer - 16'd1;
-                else if (vbl && !ss_busy) begin ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN; end
+                else if (vbl && !ss_busy) begin ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; halt <= 1'b0; state <= S_WALK; end
             end
 
             default: state <= S_IDLE;

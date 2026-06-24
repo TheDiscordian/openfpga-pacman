@@ -164,6 +164,7 @@ module tb_hiscore;
         chk(12'hC29, 8'h40,        "birdiy value injected at boot (region0)");
         chk(12'hD03, 8'h40+8'd36,  "birdiy region2 injected at boot");
         chk(12'h3ED, 8'hFC,        "birdiy display NOT injected yet (tiles still blank)");
+        chk_sh(8'd255, MAGIC,      "saves even though a display region is unrestorable yet (Ali Baba case)");
         mem[12'h3ED]=8'h30; mem[12'h3F2]=8'h20; run_frames(10);   // game draws the hiscore frame
         chk(12'h3ED, 8'h40+8'd30,  "birdiy display injected once its frame is drawn");
 
