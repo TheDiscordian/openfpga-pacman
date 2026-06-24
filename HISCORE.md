@@ -92,7 +92,10 @@ Which game is which (verified by ROM trace, two independent traces + reconcile):
 - **Direct-tile (tile injection shows it):** Pac-Man, Pac-Man Club, Woodpecker,
   Ponpoko (`406c`), Van-Van Car (`4809`+`c60`), Dream Shopper (`4808`+`c00`). The
   displayed digits are read straight from a saved region and not recomputed before
-  the draw, so the plain tile/region restore shows on reboot. No extra handling.
+  the draw, so the plain tile/region restore shows on reboot. No *display-side*
+  handling — but their uniform value/tile regions still need the boot-clear-wipe
+  protection below (Woodpecker proved it: it draws tiles directly yet its save was
+  being erased by the wipe).
 - **Value-redraw (needs `force_disp`):** **Ali Baba** and **Mr. TNT**.
   - Ali Baba: `sub_0a30 → sub_2aa7` rebuilds the `0x43ed` digit row from the BCD
     value `0x4e88-0x4e8a` on every maze build (flag `0x4dee`), which runs in attract
@@ -103,6 +106,44 @@ Which game is which (verified by ROM trace, two independent traces + reconcile):
     display.
   - Both `cfg`s already carry the value region (Ali Baba `e88`, Mr. TNT `cb3`) and
     the tile region `3ed`; the fix is purely the forced tile restore.
+
+## The boot-clear wipe — the recurring bug, and the general fix
+
+This is the bug that kept reappearing (Ali Baba, then Woodpecker), so it gets its
+own section. **The FPGA work RAM powers up to 0.** The high-score gate is
+"first byte == sval && last byte == eval", and for a value region those are both
+`0x00` — identical to the power-up state. So the engine matches the gate and
+**restores the score before the game has even run its boot clear**; the clear then
+runs and zeroes the cell, and the next snapshot writes those zeros back over the
+`.sav`. Net result: the score never shows on reboot *and* the save gets erased.
+Same story for a blank-tile display row (`0x43ed` filled with the blank tile).
+
+**Tell-tale:** read the `.sav` on the card (see Workflow) — a wiped one reads all
+defaults (value `00 00 00`, tiles all blank) with the marker still present.
+
+**Fix (general, one mechanism — `scan_uni` / state `S_ZS` in hiscore.sv):** for any
+small **uniform** region (`sval==eval`, length 2..16 — the BCD value cells and
+blank-tile rows), scan **every** byte each poll instead of just first/last:
+
+- **Re-inject** the saved bytes whenever the region reads *fully* at its default,
+  so whenever the boot clear wipes it we put it right back (it stops re-injecting
+  the instant a real score is present, since then it isn't fully-default).
+- **Never snapshot** a region while it's fully-default → the blank/zeros can't be
+  saved over a real score.
+- The full scan also distinguishes `0000` from a real score like `4200`
+  (`00 42 00 00`) whose first+last bytes are *also* 0 — the weak first/last gate
+  can't, which is why a simple "skip if gate matches" isn't enough for value cells.
+
+Why this doesn't need per-game work: **1-byte flag/label cells and large tables
+keep the cheap first/last gate** — their markers are non-zero (`0x48`, `0x03`,
+`0x02`, `0x59`, table headers), so the power-up 0 never false-matches them; they
+self-protect. **Value-redraw display tiles** (Ali Baba/Mr. TNT region 1) keep
+`force_disp`, not the scan. Everything else is covered by the one rule.
+
+> The earlier static ROM audit marked these games "no fix needed" because it only
+> asked *"would the digits draw?"* — it never modelled the FPGA power-up-0 / boot
+> clear race, which only shows on hardware. **Do not trust a static audit to clear
+> a variant; device-test each one.**
 
 ## Bugs already fixed (don't reintroduce)
 
@@ -121,6 +162,50 @@ Which game is which (verified by ROM trace, two independent traces + reconcile):
    the same bug (boot ldir's the default table, then draws it) and the same fix.
 7. `iverilog` can't bit-select a function-call result — assign `cfg()` to a wire
    first.
+8. Boot-clear wipe (Ali Baba, then Woodpecker) — power-up-0 false-matches the value
+   gate, restore lands before the game's clear, the clear wipes it, the snapshot
+   saves the blank. Fix: general `scan_uni`/`S_ZS` full-scan re-inject + preserve
+   (see the section above). Don't reintroduce a first/last-only gate for value cells.
+
+## Workflow: diagnosing & fixing a variant's high score
+
+The flow is the same every time — follow it in order, don't skip to a fix.
+
+1. **Read the actual `.sav` on the card** (ground truth, not theory). The save dir is
+   `<SD>/Saves/pacman/TheDiscordian.PacMan/` (variants under `_variants/`). Dump the
+   region bytes from `cfg()` for that mod and byte 255:
+   ```
+   xxd -l <n> "<SD>/Saves/.../_variants/<Game>.sav"   # value | tiles | flag
+   xxd -s 255 -l 1 "<...>.sav"                          # marker (0x5A == valid)
+   ```
+   - All-default bytes (value `00`, tiles blank) + marker present ⇒ **wiped save**
+     (the boot-clear wipe) — apply the general fix and confirm the region is in
+     `scan_uni`'s range (uniform, 2..16 bytes).
+   - Real score bytes present but nothing on screen ⇒ **restore/display** problem
+     (value-redraw → `force_disp`; or the displayed tiles aren't the saved region).
+   - No `.sav` at all ⇒ the game never wrote our regions — suspect wrong addresses.
+2. **Confirm the addresses** against MAME `plugins/hiscore/hiscore.dat` for that set,
+   resolved to the `0x4000` window. If the `.sav` regions read as plausible game
+   state, they're right; if they read as constant garbage, RE where the score really
+   lives (next section).
+3. **Reproduce in sim** (`sim/tb_hiscore.v`) — add a test that loads a saved score,
+   restores, then *wipes* the regions (value→0, tiles→blank) and runs again, asserting
+   the score is re-injected and the shadow is preserved. See `[8]` (Ali Baba) / `[10]`
+   (Woodpecker). A fix isn't done until its sim test passes **and** all others still do.
+4. **Build & deploy:** `./build.sh` (background), then copy
+   `dist/Cores/TheDiscordian.PacMan/bitstream.rbf_r` to the SD core dir, `sync`, and
+   verify md5 + that ROMs/saves are untouched. Don't touch `Saves/`.
+5. **Device-verify** (the only verdict that counts): set a score → reboot → it shows
+   on the boot screen → reboot again → it persists. A static ROM read is **not**
+   verification — it missed the boot-clear wipe twice.
+
+Input (a different failure mode — "the initials screen won't take a button"): the
+game has an action button not wired in the per-mod mux in `core_top.v`. Find its bit
+in the MAME `INPUT_PORTS` for that set (the `IPT_BUTTON1/2` lines) and add
+`mod_xxx: pac_inN[b] = ~m_btn;`. Audited bits: Birdiy IN1 b4/b7, Ali Baba IN0 b6,
+Ponpoko IN0 b4, Van-Van/Dream Shopper IN0 b4, Eeekk IN0 b7/IN1 b6, Mr. TNT &
+Woodpecker IN1 b4, Glob IN1 b5/b6 (shared with start), Jump Shot IN1 b5/b6 (one per
+player — no separate steal).
 
 ## How to RE a variant's high score (so you don't guess)
 
