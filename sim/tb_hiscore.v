@@ -76,6 +76,9 @@ module tb_hiscore;
             sv_wr=0; @(negedge clk);
         end
     endtask
+    task shwr(input [7:0] a, input [7:0] d);   // write one shadow (.sav) byte
+        begin @(negedge clk); sv_wr=1; sv_wr_addr=a; sv_wr_data=d; @(negedge clk); sv_wr=0; @(negedge clk); end
+    endtask
     task pacman_default;       // RAM in the gate-default state (game booted, no high score)
         begin
             for (i=0;i<4096;i=i+1) mem[i]=8'h00;
@@ -168,22 +171,38 @@ module tb_hiscore;
         mem[12'h3ED]=8'h30; mem[12'h3F2]=8'h20; run_frames(10);   // game draws the hiscore frame
         chk(12'h3ED, 8'h40+8'd30,  "birdiy display injected once its frame is drawn");
 
-        // ===== [8] Ali Baba (mod 10): value-redraw -> force the display tiles in =====
-        // The game repaints 0x43ed from the value 0x4e88 every maze build, so the boot
-        // attract has already painted "0000" into 0x43ed (tile 0x30, NOT the blank-tile
-        // gate 0x40). Restoring the value alone shows nothing until a redraw; the engine
-        // must force the saved tiles in the instant the value restores.
-        $display("[8] Ali Baba value-redraw force-tiles");
+        // ===== [8] Ali Baba (mod 10): value wiped by the boot clear + no attract repaint =====
+        // 0x4e88 is BOTH the on-screen high-score source AND gets zeroed by the game's boot
+        // clear that runs AFTER our restore. The engine must (a) re-inject the saved value
+        // whenever the cell reads fully-cold so it survives the clear, (b) tell 0000 (cold)
+        // from a real 4200 score whose first+last bytes are also 0, (c) force the display
+        // tiles each time, (d) never snapshot the cold zeros over the saved score.
+        $display("[8] Ali Baba value re-inject past the boot clear");
         reset=1; loaded=0; mod_sel=5'd10;
-        for (i=0;i<4096;i=i+1) mem[i]=8'h00;            // value 0x4e88-0x4e8b = 0 -> value gate matches
+        for (i=0;i<4096;i=i+1) mem[i]=8'h00;            // value 0x4e88-0x4e8b = 0 (cold)
         for (i=12'h3ED;i<=12'h3F2;i=i+1) mem[i]=8'h30;  // display already shows "0000" -> tile gate (40/40) FAILS
-        mem[12'h3D1]=8'h48;                             // label gate matches
-        repeat(8)@(posedge clk); loadshadow(11, 8'h50, 1'b1); repeat(8)@(posedge clk);
-        reset=0; loaded=1; run_frames(14);
-        chk(12'hE88,8'h50,"alibaba value injected");  chk(12'hE8B,8'h53,"alibaba value last byte");
-        chk(12'h3ED,8'h54,"alibaba tiles FORCED in despite gate mismatch (the fix)");
-        chk(12'h3F2,8'h59,"alibaba tiles last byte forced");
-        chk(12'h3D1,8'h5A,"alibaba label injected");
+        mem[12'h3D1]=8'h48;
+        // saved score 4200: value 00 42 00 00, tiles "4200" = 30 30 32 34 40 40, label 48
+        shwr(8'd0,8'h00); shwr(8'd1,8'h42); shwr(8'd2,8'h00); shwr(8'd3,8'h00);
+        shwr(8'd4,8'h30); shwr(8'd5,8'h30); shwr(8'd6,8'h32); shwr(8'd7,8'h34); shwr(8'd8,8'h40); shwr(8'd9,8'h40);
+        shwr(8'd10,8'h48); shwr(8'd255,MAGIC);
+        reset=0; loaded=1; run_frames(10);
+        chk(12'hE89,8'h42,"alibaba value injected (4200)");
+        chk(12'h3EF,8'h32,"alibaba tiles FORCED in despite gate mismatch (the fix)");
+        chk(12'h3F0,8'h34,"alibaba tiles forced");
+        chk(12'h3D1,8'h48,"alibaba label preserved");
+        // the game's boot clear now runs AFTER our restore: zero the value, blank the tiles
+        for (i=12'hE88;i<=12'hE8B;i=i+1) mem[i]=8'h00;
+        for (i=12'h3ED;i<=12'h3F2;i=i+1) mem[i]=8'h40;
+        run_frames(8);
+        chk(12'hE89,8'h42,"alibaba value RE-injected past the clear (the fix)");
+        chk(12'h3EF,8'h32,"alibaba tiles re-forced past the clear");
+        chk_sh(8'd1,8'h42,"saved score preserved (cold zeros not snapshotted over it)");
+        // player beats it to 9900 (00 99 00 00): engine must NOT re-inject, must save it
+        mem[12'hE88]=8'h00; mem[12'hE89]=8'h99; mem[12'hE8A]=8'h00; mem[12'hE8B]=8'h00;
+        run_frames(8);
+        chk(12'hE89,8'h99,"beaten score not clobbered by re-inject");
+        chk_sh(8'd1,8'h99,"beaten score snapshotted to the save");
 
         // ===== [9] Mr. TNT (mod 7): boot ldir's the default table then draws it =====
         // Region0 is the 60-byte table (gate 4c/01 = the ROM default), region1 the tiles.

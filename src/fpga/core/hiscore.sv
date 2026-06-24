@@ -118,6 +118,8 @@ module hiscore #(
     reg        gate_ok;  // per-region: first byte matched its sval
     reg        fresh;    // .sav has no validity marker -> do not inject
     reg [3:0]  injected; // per-region one-shot: bit set once region ri has been restored
+    reg        r0_now;   // value region (re)injected this walk -> force the display tiles
+    reg        r0_cold;  // value region scanned fully-cold this poll -> skip snapshot (preserve saved)
 
     // current region (combinational unpack of cfg(mod_sel, ri))
     wire [CW-1:0] cw   = cfg(mod_sel, ri);
@@ -135,7 +137,11 @@ module hiscore #(
     // tile region (region 1) in, bypassing its own gate, so the saved number shows now
     // and the restored value keeps later redraws correct. One-shot via injected[1].
     wire          vredraw    = (mod_sel == 5'd7) || (mod_sel == 5'd10);
-    wire          force_disp = vredraw && (ri == 3'd1) && injected[0];
+    // Ali Baba also WIPES the value cell with its boot clear and never repaints the score
+    // in attract, so a one-shot restore loses the race; for it the value region re-injects
+    // whenever it reads fully-cold (see S_ZS) and the tiles re-force each time (r0_now).
+    wire          vr_ab      = (mod_sel == 5'd10);
+    wire          force_disp = vredraw && (ri == 3'd1) && (vr_ab ? r0_now : injected[0]);
     // ---- shadow (the .sav image), 256 bytes ----
     reg [7:0] shadow [0:255];
     assign sv_rd_data = shadow[sv_rd_addr];
@@ -145,7 +151,8 @@ module hiscore #(
                S_WALK=4'd2, S_G1=4'd3, S_G2=4'd4,   // per-region gate (first==sval && last==eval)
                S_RINJ=4'd5,                          // inject one region (shadow -> RAM)
                S_SN=4'd6,  S_SN_L=4'd7,              // snapshot all regions (RAM -> shadow)
-               S_HOLD=4'd8;
+               S_HOLD=4'd8,
+               S_ZS=4'd9;                            // value region: scan all bytes for the fully-cold state
 
     always @(posedge clk) begin
         if (sv_wr) shadow[sv_wr_addr] <= sv_wr_data;
@@ -154,6 +161,7 @@ module hiscore #(
             state <= S_IDLE; pause <= 1'b0;
             hs_access_read <= 1'b0; hs_access_write <= 1'b0; hs_write_enable <= 1'b0;
             ri <= 3'd0; bi <= 8'd0; sp <= 8'd0; timer <= 16'd0; halt <= 1'b0; injected <= 4'd0;
+            r0_now <= 1'b0; r0_cold <= 1'b0;
         end else if (ce) begin
             hs_access_read  <= 1'b0;
             hs_access_write <= 1'b0;
@@ -181,7 +189,7 @@ module hiscore #(
                 pause <= 1'b0;
                 if (timer != 0) timer <= timer - 16'd1;
                 else if (vbl && !ss_busy) begin
-                    ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; halt <= 1'b0; state <= S_WALK;
+                    ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; halt <= 1'b0; r0_now <= 1'b0; state <= S_WALK;
                 end
             end
 
@@ -196,8 +204,10 @@ module hiscore #(
                 if (!halt) halt <= 1'b1;                              // settle after pause
                 else if (!rv) begin                                  // walked all regions -> snapshot
                     halt <= 1'b0; ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN;
-                end else if (injected[ri[1:0]]) begin
-                    sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1;         // already restored -> skip
+                end else if (vr_ab && ri == 3'd0) begin              // Ali Baba value: full-cold scan every poll
+                    gate_ok <= 1'b1; bi <= 8'd0; hs_address <= roff; hs_access_read <= 1'b1; state <= S_ZS;
+                end else if (injected[ri[1:0]] && !(vr_ab && ri == 3'd1)) begin
+                    sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1;         // already restored -> skip (Ali Baba tiles stay re-forceable)
                 end else begin
                     gate_ok <= 1'b1; hs_address <= roff; hs_access_read <= 1'b1; state <= S_G1;
                 end
@@ -211,6 +221,24 @@ module hiscore #(
                 else begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; halt <= 1'b1; state <= S_WALK; end
             end
 
+            // Ali Baba value region: scan ALL bytes for the fully-cold state (every byte == sval).
+            // The FPGA work RAM powers up to 0, which the first/last gate cannot tell from the
+            // game's own boot clear -- and the boot clear runs AFTER our restore and wipes it.
+            // A whole-region scan distinguishes the cleared cell (00 00 00 00) from a live score
+            // whose first+last bytes are also 0 (e.g. 4200 = 00 42 00 00), so re-injecting the
+            // saved value whenever the cell reads cold restores it past the clear without ever
+            // clobbering a real score.
+            S_ZS: begin
+                pause <= 1'b1;
+                if (hs_data_out != rsv) gate_ok <= 1'b0;
+                if (bi + 8'd1 == rlen) begin
+                    if (!fresh && gate_ok && hs_data_out == rsv) begin r0_cold <= 1'b1; bi <= 8'd0; state <= S_RINJ; end
+                    else begin r0_cold <= 1'b0; sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; halt <= 1'b1; state <= S_WALK; end
+                end else begin
+                    bi <= bi + 8'd1; hs_address <= roff + {4'd0, bi} + 12'd1; hs_access_read <= 1'b1;
+                end
+            end
+
             // inject region ri: shadow[sp+bi] -> mem[roff+bi]
             S_RINJ: begin
                 pause <= 1'b1;
@@ -219,6 +247,7 @@ module hiscore #(
                 hs_access_write <= 1'b1; hs_write_enable <= 1'b1;
                 if (bi + 8'd1 == rlen) begin
                     injected[ri[1:0]] <= 1'b1;
+                    if (ri == 3'd0) r0_now <= 1'b1;                   // value (re)injected -> force the display tiles this walk
                     sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; halt <= 1'b1; state <= S_WALK;
                 end else bi <= bi + 8'd1;
             end
@@ -227,7 +256,8 @@ module hiscore #(
             S_SN: begin
                 pause <= 1'b1;
                 if (!rv) begin shadow[8'd255] <= MAGIC; timer <= POLL_INTERVAL; state <= S_HOLD; end
-                else if (!fresh && !injected[ri[1:0]]) begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; end  // saved-but-not-yet-restored -> keep its loaded save; a fresh card snapshots all (nothing to preserve)
+                else if (vr_ab && ri == 3'd0 && !fresh && r0_cold) begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; end  // value sits at cold default -> preserve the saved score, do not snapshot zeros
+                else if (!fresh && !injected[ri[1:0]] && !(vr_ab && ri == 3'd0)) begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; end  // saved-but-not-yet-restored -> keep its loaded save; a fresh card snapshots all (nothing to preserve)
                 else begin hs_address <= roff + {4'd0, bi}; hs_access_read <= 1'b1; state <= S_SN_L; end
             end
             S_SN_L: begin
@@ -241,7 +271,7 @@ module hiscore #(
             S_HOLD: begin
                 pause <= 1'b0;
                 if (timer != 0) timer <= timer - 16'd1;
-                else if (vbl && !ss_busy) begin ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; halt <= 1'b0; state <= S_WALK; end
+                else if (vbl && !ss_busy) begin ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; halt <= 1'b0; r0_now <= 1'b0; state <= S_WALK; end
             end
 
             default: state <= S_IDLE;
