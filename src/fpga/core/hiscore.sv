@@ -150,9 +150,30 @@ module hiscore #(
     // tables and 1-byte flag/label cells keep the cheap first/last gate; value-redraw display
     // tiles (region 1 of Ali Baba / Mr. TNT) use force_disp instead.
     wire          scan_uni   = (rsv == rev) && (rlen >= 8'd2) && (rlen <= 8'd16) && !(vredraw && ri == 3'd1);
+
+    // Woodpecker (mod 8) has NO ROM routine that draws a SAVED high score -- it paints the
+    // digit row only the instant the score is beaten (then it persists), so restoring the
+    // value alone never makes it appear. We paint the row ourselves (state S_REND) -- see
+    // the vt0..vt5 tiles built from the restored value below the shadow declaration.
+    wire          render_val = (mod_sel == 5'd8);
     // ---- shadow (the .sav image), 256 bytes ----
     reg [7:0] shadow [0:255];
     assign sv_rd_data = shadow[sv_rd_addr];
+
+    // Woodpecker digit-row paint: 6 tiles from the restored value (shadow[0..2] = 0x4e88-0x4e8a).
+    // ROM converter (0x9955): tile = 0x30+nibble, leading zeros blank to 0x40, ones always shown.
+    // Cells 0x43ed..0x43f2 <- 0x4e88(low pair) .. 0x4e8a(high pair); nibble order ROM-verified.
+    wire [3:0] vd0 = shadow[0][3:0], vd1 = shadow[0][7:4],
+               vd2 = shadow[1][3:0], vd3 = shadow[1][7:4],
+               vd4 = shadow[2][3:0], vd5 = shadow[2][7:4];
+    wire vz5 = (vd5 == 4'd0),        vz4 = vz5 && (vd4 == 4'd0), vz3 = vz4 && (vd3 == 4'd0),
+         vz2 = vz3 && (vd2 == 4'd0), vz1 = vz2 && (vd1 == 4'd0);
+    wire [7:0] vt0 =       8'h30 + {4'd0, vd0};        // ones, always shown
+    wire [7:0] vt1 = vz1 ? 8'h40 : 8'h30 + {4'd0, vd1};
+    wire [7:0] vt2 = vz2 ? 8'h40 : 8'h30 + {4'd0, vd2};
+    wire [7:0] vt3 = vz3 ? 8'h40 : 8'h30 + {4'd0, vd3};
+    wire [7:0] vt4 = vz4 ? 8'h40 : 8'h30 + {4'd0, vd4};
+    wire [7:0] vt5 = vz5 ? 8'h40 : 8'h30 + {4'd0, vd5};
 
     localparam [7:0] MAGIC = 8'h5A;   // .sav validity marker, stored at shadow[255]
     localparam S_IDLE=4'd0, S_ARM=4'd1,
@@ -160,7 +181,8 @@ module hiscore #(
                S_RINJ=4'd5,                          // inject one region (shadow -> RAM)
                S_SN=4'd6,  S_SN_L=4'd7,              // snapshot all regions (RAM -> shadow)
                S_HOLD=4'd8,
-               S_ZS=4'd9;                            // value region: scan all bytes for the fully-cold state
+               S_ZS=4'd9,                            // value region: scan all bytes for the fully-cold state
+               S_REND=4'd10;                         // Woodpecker: paint the digit row from the restored value
 
     always @(posedge clk) begin
         if (sv_wr) shadow[sv_wr_addr] <= sv_wr_data;
@@ -254,8 +276,23 @@ module hiscore #(
                 if (bi + 8'd1 == rlen) begin
                     injected[ri[1:0]] <= 1'b1;
                     if (ri == 3'd0) r0_now <= 1'b1;                   // value (re)injected -> force the display tiles this walk
-                    sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; halt <= 1'b1; state <= S_WALK;
+                    sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1;
+                    if (render_val && ri == 3'd0) begin bi <= 8'd0; state <= S_REND; end  // Woodpecker: paint the digit row from the value we just restored
+                    else begin halt <= 1'b1; state <= S_WALK; end
                 end else bi <= bi + 8'd1;
+            end
+
+            // Woodpecker: write the 6 computed digit tiles into 0x43ed-0x43f2 (vt0..vt5).
+            S_REND: begin
+                pause <= 1'b1;
+                hs_address <= 12'h3ed + {9'd0, bi[2:0]};
+                case (bi[2:0])
+                    3'd0: hs_data_in <= vt0; 3'd1: hs_data_in <= vt1; 3'd2: hs_data_in <= vt2;
+                    3'd3: hs_data_in <= vt3; 3'd4: hs_data_in <= vt4; default: hs_data_in <= vt5;
+                endcase
+                hs_access_write <= 1'b1; hs_write_enable <= 1'b1;
+                if (bi + 8'd1 == 8'd6) begin bi <= 8'd0; halt <= 1'b1; state <= S_WALK; end
+                else bi <= bi + 8'd1;
             end
 
             // --- snapshot: RAM -> shadow across all regions, then hold (continuous save) ---

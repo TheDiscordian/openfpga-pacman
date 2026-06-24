@@ -29,6 +29,16 @@ So when a game "doesn't show its high score", the question is **not** "should we
 paint it?" — it's "which RAM does the boot/attract draw read, and are we restoring
 exactly that, at the right time?" Find the boot draw (not just the beat draw).
 
+**The one verified exception (Woodpecker):** a full 64KB-accurate trace proved
+Woodpecker has *no* routine that draws a SAVED high score — nothing ever reads
+0x4e88 to draw it; the digit row is painted only the instant a score is beaten, and
+on original hardware the attract demo beats `000000` and repaints it (once we
+persist a real value, the demo can't beat it, so it never repaints). There is
+genuinely no game-draw to trigger. So here — and ONLY after the trace proves it —
+the engine paints the row itself from the restored value (`render_val`/`S_REND`,
+replicating the ROM's BCD→tile converter). The painter is the wrong *default*; it
+is the right answer when the trace shows no saved-score draw exists.
+
 ## What it does
 
 The original boards keep the high score in battery-free work RAM (0x4000–0x4FFF),
