@@ -79,10 +79,8 @@ module hiscore #(
                 2'd0: cfg = R(12'hcb3, 8'h3c, 8'h4c, 8'h01);
                 2'd1: cfg = R(12'h3ed, 8'd6,  8'h00, 8'h40);
                 default: cfg = {CW{1'b0}}; endcase
-            5'd8: case (i)                                   // Woodpecker
+            5'd8: case (i)                                   // Woodpecker -- value-redraw: 0x43ed is drawn from 0x4e88 ONLY when the score is beaten (routine 0x0a1c), never at boot/attract; restoring the stale tile row paints garbage. Save the value alone; the score persists for the in-game compare.
                 2'd0: cfg = R(12'he88, 8'd3,  8'h00, 8'h00);
-                2'd1: cfg = R(12'h3ed, 8'd6,  8'h40, 8'h40);
-                2'd2: cfg = R(12'hdda, 8'd1,  8'h03, 8'h03);
                 default: cfg = {CW{1'b0}}; endcase
             5'd10: case (i)                                  // Ali Baba
                 2'd0: cfg = R(12'he88, 8'd4,  8'h00, 8'h00);

@@ -134,16 +134,13 @@ module tb_hiscore;
         // region0 c40/3 <- sh0..2 ; verify first+last region injected (proves all 4 walked)
         chk(12'hC40,8'h30,"ponp r0 first"); chk(12'hC53,8'h30+8'd28,"ponp r3 (last region) injected");
 
-        // ===== [5] Woodpecker (mod 8) per-mod offsets =====
-        $display("[5] Woodpecker per-mod offsets");
+        // ===== [5] Woodpecker (mod 8) value-only restore (0x43ed is value-redraw, not saved) =====
+        $display("[5] Woodpecker value-only restore");
         reset=1; loaded=0; mod_sel=5'd8;
         for (i=0;i<4096;i=i+1) mem[i]=8'h00;
-        for (i=12'h3ED;i<=12'h3F2;i=i+1) mem[i]=8'h40;
-        mem[12'hDDA]=8'h03;
-        repeat(8)@(posedge clk); loadshadow(10, 8'h20, 1'b1); repeat(8)@(posedge clk);
+        repeat(8)@(posedge clk); loadshadow(3, 8'h20, 1'b1); repeat(8)@(posedge clk);
         reset=0; loaded=1; run_frames(14);
-        chk(12'hE88,8'h20,"wp e88"); chk(12'hE8A,8'h22,"wp e8a");
-        chk(12'h3ED,8'h23,"wp 3ed"); chk(12'hDDA,8'h29,"wp dda");
+        chk(12'hE88,8'h20,"wp value e88"); chk(12'hE8A,8'h22,"wp value e8a");
         chk(12'hE8B,8'h00,"wp e8b untouched (len 3)");
 
         // ===== [6] savestate interlock: ss_busy stalls snapshot (no tap collision) =====
@@ -217,28 +214,23 @@ module tb_hiscore;
         chk(12'h3ED,8'hBC,"mrtnt tiles FORCED in despite gate mismatch (the fix)");
         chk(12'h3F2,8'hC1,"mrtnt tiles last byte forced");
 
-        // ===== [10] Woodpecker (mod 8): tiles ARE the display; value + tiles both wiped by boot blank =====
-        // Generic protection (not value-redraw): the value (0x4e88) and the displayed digit
-        // tiles (0x43ed, a uniform blank-tile row) both get re-injected past the boot blank
-        // and are never snapshotted while at their default, so the .sav can't be erased.
-        $display("[10] Woodpecker value+tiles re-inject past the boot blank");
+        // ===== [10] Woodpecker (mod 8): value re-inject past the boot clear (value-only) =====
+        // 0x43ed is value-redraw (drawn only on beat), so it is NOT a saved region; only the
+        // value 0x4e88 is, and it must survive the boot clear and never snapshot zeros over a
+        // real score.
+        $display("[10] Woodpecker value re-inject past the boot clear");
         reset=1; loaded=0; mod_sel=5'd8;
         for (i=0;i<4096;i=i+1) mem[i]=8'h00;            // value cold
-        for (i=12'h3ED;i<=12'h3F2;i=i+1) mem[i]=8'h40;  // tiles blank (cold)
-        mem[12'hDDA]=8'h03;                             // ready flag set
-        shwr(8'd0,8'h00); shwr(8'd1,8'h25); shwr(8'd2,8'h00);                                  // value
-        shwr(8'd3,8'h35); shwr(8'd4,8'h32); shwr(8'd5,8'h33); shwr(8'd6,8'h30); shwr(8'd7,8'h40); shwr(8'd8,8'h40);  // tiles
-        shwr(8'd9,8'h03); shwr(8'd255,MAGIC);
+        shwr(8'd0,8'h00); shwr(8'd1,8'h25); shwr(8'd2,8'h00); shwr(8'd255,MAGIC);  // value
         reset=0; loaded=1; run_frames(10);
         chk(12'hE89,8'h25,"woodp value injected");
-        chk(12'h3ED,8'h35,"woodp display tiles injected");
-        for (i=12'hE88;i<=12'hE8A;i=i+1) mem[i]=8'h00;          // boot blank runs after restore: clear value
-        for (i=12'h3ED;i<=12'h3F2;i=i+1) mem[i]=8'h40;          // ... and blank the tiles
+        for (i=12'hE88;i<=12'hE8A;i=i+1) mem[i]=8'h00;          // boot clear runs after restore
         run_frames(8);
-        chk(12'hE89,8'h25,"woodp value RE-injected past the blank (the fix)");
-        chk(12'h3ED,8'h35,"woodp tiles RE-injected past the blank (the fix)");
+        chk(12'hE89,8'h25,"woodp value RE-injected past the clear (the fix)");
         chk_sh(8'd1,8'h25,"woodp saved value preserved (not zeroed)");
-        chk_sh(8'd3,8'h35,"woodp saved tiles preserved (not blanked)");
+        mem[12'hE88]=8'h00; mem[12'hE89]=8'h99; mem[12'hE8A]=8'h00;  // player beats it
+        run_frames(8);
+        chk_sh(8'd1,8'h99,"woodp beaten score snapshotted");
 
         if (pause_stuck) begin $display("  FAIL: pause wedged (CPU frozen / ri wrap)"); fails=fails+1; end
         if (fails==0) $display("==== ALL PASS ===="); else $display("==== %0d FAILS ====", fails);
