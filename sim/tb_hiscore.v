@@ -168,6 +168,36 @@ module tb_hiscore;
         mem[12'h3ED]=8'h30; mem[12'h3F2]=8'h20; run_frames(10);   // game draws the hiscore frame
         chk(12'h3ED, 8'h40+8'd30,  "birdiy display injected once its frame is drawn");
 
+        // ===== [8] Ali Baba (mod 10): value-redraw -> force the display tiles in =====
+        // The game repaints 0x43ed from the value 0x4e88 every maze build, so the boot
+        // attract has already painted "0000" into 0x43ed (tile 0x30, NOT the blank-tile
+        // gate 0x40). Restoring the value alone shows nothing until a redraw; the engine
+        // must force the saved tiles in the instant the value restores.
+        $display("[8] Ali Baba value-redraw force-tiles");
+        reset=1; loaded=0; mod_sel=5'd10;
+        for (i=0;i<4096;i=i+1) mem[i]=8'h00;            // value 0x4e88-0x4e8b = 0 -> value gate matches
+        for (i=12'h3ED;i<=12'h3F2;i=i+1) mem[i]=8'h30;  // display already shows "0000" -> tile gate (40/40) FAILS
+        mem[12'h3D1]=8'h48;                             // label gate matches
+        repeat(8)@(posedge clk); loadshadow(11, 8'h50, 1'b1); repeat(8)@(posedge clk);
+        reset=0; loaded=1; run_frames(14);
+        chk(12'hE88,8'h50,"alibaba value injected");  chk(12'hE8B,8'h53,"alibaba value last byte");
+        chk(12'h3ED,8'h54,"alibaba tiles FORCED in despite gate mismatch (the fix)");
+        chk(12'h3F2,8'h59,"alibaba tiles last byte forced");
+        chk(12'h3D1,8'h5A,"alibaba label injected");
+
+        // ===== [9] Mr. TNT (mod 7): boot ldir's the default table then draws it =====
+        // Region0 is the 60-byte table (gate 4c/01 = the ROM default), region1 the tiles.
+        $display("[9] Mr. TNT value-redraw force-tiles");
+        reset=1; loaded=0; mod_sel=5'd7;
+        for (i=0;i<4096;i=i+1) mem[i]=8'h00;
+        mem[12'hCB3]=8'h4c; mem[12'hCEE]=8'h01;         // table region gate (first 4c, last 01) matches default
+        for (i=12'h3ED;i<=12'h3F2;i=i+1) mem[i]=8'h30;  // tiles show "0000" -> tile gate (00/40) FAILS
+        repeat(8)@(posedge clk); loadshadow(66, 8'h80, 1'b1); repeat(8)@(posedge clk);
+        reset=0; loaded=1; run_frames(16);
+        chk(12'hCB3,8'h80,"mrtnt table injected");  chk(12'hCEE,8'hBB,"mrtnt table last byte");
+        chk(12'h3ED,8'hBC,"mrtnt tiles FORCED in despite gate mismatch (the fix)");
+        chk(12'h3F2,8'hC1,"mrtnt tiles last byte forced");
+
         if (pause_stuck) begin $display("  FAIL: pause wedged (CPU frozen / ri wrap)"); fails=fails+1; end
         if (fails==0) $display("==== ALL PASS ===="); else $display("==== %0d FAILS ====", fails);
         $finish;

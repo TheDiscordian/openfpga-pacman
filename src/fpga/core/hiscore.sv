@@ -127,6 +127,15 @@ module hiscore #(
     wire [7:0]    rsv  = cw[15:8];
     wire [7:0]    rev  = cw[7:0];
     wire [11:0]   rlast = roff + {4'd0, rlen} - 12'd1;
+    // Some games recompute the on-screen high-score digits from the value cell on
+    // every screen build (incl. attract) -- Ali Baba redraws 0x43ed from 0x4e88 each
+    // maze build; Mr. TNT ldir's the ROM-default table over 0x4cb3 at boot then draws
+    // it. For those, restoring the value alone shows nothing until the game happens to
+    // redraw; so the instant the value (region 0) is restored we ALSO force the display
+    // tile region (region 1) in, bypassing its own gate, so the saved number shows now
+    // and the restored value keeps later redraws correct. One-shot via injected[1].
+    wire          vredraw    = (mod_sel == 5'd7) || (mod_sel == 5'd10);
+    wire          force_disp = vredraw && (ri == 3'd1) && injected[0];
     // ---- shadow (the .sav image), 256 bytes ----
     reg [7:0] shadow [0:255];
     assign sv_rd_data = shadow[sv_rd_addr];
@@ -198,7 +207,7 @@ module hiscore #(
                 hs_address <= rlast; hs_access_read <= 1'b1; state <= S_G2;
             end
             S_G2: begin
-                if (!fresh && gate_ok && hs_data_out == rev) begin bi <= 8'd0; state <= S_RINJ; end  // ready + real save -> inject
+                if (!fresh && (force_disp || (gate_ok && hs_data_out == rev))) begin bi <= 8'd0; state <= S_RINJ; end  // ready (or value-redraw force) + real save -> inject
                 else begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; halt <= 1'b1; state <= S_WALK; end
             end
 

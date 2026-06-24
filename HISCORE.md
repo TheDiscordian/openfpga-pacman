@@ -33,7 +33,7 @@ MRAs), resolved to the 0x4000 work-RAM window. This is the `cfg()` table in
 | 4 | Birdiy | `c29/30(00)`, `3ed/6(30/20)`, `d03/3(00)` | redrawn from `c29` table |
 | 7 | Mr. TNT | `cb3/60(4c/01)`, `3ed/6(00/40)` | `3ed` tiles |
 | 8 | Woodpecker | `e88/3(00)`, `3ed/6(40/40)`, `dda/1(03)` | `3ed` tiles |
-| 10 | Ali Baba | `e88/4(00)`, `3ed/6(40/40)`, `3d1/1(48)` | **see Ali Baba note** |
+| 10 | Ali Baba | `e88/4(00)`, `3ed/6(40/40)`, `3d1/1(48)` | redrawn from `e88` value (forced) |
 | 11 | Ponpoko | `c40/3(00)`, `e5a/19(00)`, `06c/6(0f/00)`, `c53/1(02)` | `06c` tiles |
 | 12 | Van-Van Car | `809/6(00)`, `c60/240(00)` | redrawn from `c60` table |
 | 14 | Dream Shopper | `c00/240(00/01)`, `808/6(00)`, `809/1(03)` | redrawn from `c00` table |
@@ -54,6 +54,11 @@ Key properties, each earned by a bug (see below):
 - **Per-region one-shot restore.** Each region injects independently the moment
   *its own* gate holds (`injected[ri]` latch). The score value restores at boot
   even if the displayed tiles aren't painted yet. This is what fixed Birdiy.
+- **Forced display restore (`force_disp`).** For value-redraw games (Ali Baba,
+  Mr. TNT — `mod_sel` 10/7), the instant the value region (region 0) injects, the
+  display-tile region (region 1) is injected too, *bypassing its own gate*. One-shot
+  via `injected[1]`, so it never overwrites the live display after that first paint.
+  Without this the saved number never appears until the game next redraws.
 - **Save is decoupled from restore.** `S_WALK` always proceeds to snapshot; the
   engine does not wait for every region to be restorable before it will save.
   When not fresh it **skips snapshotting a region that hasn't been restored yet**,
@@ -73,20 +78,31 @@ and it is per-game:
 
 - **Games that show their saved digit tiles directly** (Pac-Man, Club, Woodpecker,
   Mr. TNT) — we restore `3ed`, the game doesn't repaint it, the number shows.
-- **Games that redraw the digits from a value/table** (Birdiy `c29`, Van-Van
-  `c60`, Dream Shopper `c00`) — restoring the tile row isn't enough or isn't even
-  saved; the game recomputes the digits from the table, and if it only does that
-  **after a coin/game start** the boot/attract screen shows 0 until you play once.
-  Restoring the *value/table* region (per-region, at boot) is what makes the next
-  redraw show the real number.
+- **Games that redraw the digits from a value/table** — the game recomputes the
+  digit tiles from a value cell, so restoring the tile row alone is futile: the
+  next redraw overwrites it from the value. Restoring the *value* region (at boot)
+  is what feeds the redraw. **But** if the redraw has already run once (showing 0)
+  and won't run again until a coin/game, the boot screen stays 0. The engine's
+  answer (see `force_disp`): the instant the value region restores, also force the
+  display-tile region in — so the saved number shows immediately, and the restored
+  value keeps every later redraw correct.
 
-> **Ali Baba is the sharp case:** its `cfg` is byte-for-byte identical to Pac-Man
-> (`e88`/`3ed`/`3d1`) and it **saves** correctly (verified: `.sav` held value
-> `e88 = 00 42 00 00` = 4200, tiles `3ed = "4200"`, label `3d1 = 0x48`), yet the
-> score does not display on reboot. So "has a `3ed` tile region" does **not**
-> guarantee it shows — Ali Baba must repaint `3ed` from its value at attract, or
-> its tile gate never matches at boot. Root cause + fix: see the open trace
-> (`alibaba-hiscore-restore-trace` workflow) — fill in here when it lands.
+Which game is which (verified by ROM trace, two independent traces + reconcile):
+
+- **Direct-tile (tile injection shows it):** Pac-Man, Pac-Man Club, Woodpecker,
+  Ponpoko (`406c`), Van-Van Car (`4809`+`c60`), Dream Shopper (`4808`+`c00`). The
+  displayed digits are read straight from a saved region and not recomputed before
+  the draw, so the plain tile/region restore shows on reboot. No extra handling.
+- **Value-redraw (needs `force_disp`):** **Ali Baba** and **Mr. TNT**.
+  - Ali Baba: `sub_0a30 → sub_2aa7` rebuilds the `0x43ed` digit row from the BCD
+    value `0x4e88-0x4e8a` on every maze build (flag `0x4dee`), which runs in attract
+    too — so injected tiles get repainted from the value.
+  - Mr. TNT: boot (`0x0688`) does an unconditional `ld hl,0x39BA; ld de,0x4CB3;
+    ld bc,0x3C; ldir` of the ROM-default hiscore table over `0x4cb3`, then draws the
+    digits from `0x4cb8` — no validity guard, so the restore is clobbered before
+    display.
+  - Both `cfg`s already carry the value region (Ali Baba `e88`, Mr. TNT `cb3`) and
+    the tile region `3ed`; the fix is purely the forced tile restore.
 
 ## Bugs already fixed (don't reintroduce)
 
@@ -99,8 +115,10 @@ and it is per-game:
 4. Birdiy top line clipped — obsolete `h_edge_col` blanking. Removed.
 5. Birdiy boot showed 0 — restore was gated on **all** regions being restorable.
    Fix: per-region one-shot restore (value injects at boot).
-6. Ali Baba "doesn't save" — was a mis-diagnosis; it does save. Real issue is
-   reboot-display (open).
+6. Ali Baba "doesn't save" — was a mis-diagnosis; it saves fine. Real issue was
+   reboot-display: the game repaints the digits from the value, overwriting the
+   injected tiles. Fix: `force_disp` (forced display restore, above). Mr. TNT had
+   the same bug (boot ldir's the default table, then draws it) and the same fix.
 7. `iverilog` can't bit-select a function-call result — assign `cfg()` to a wire
    first.
 
