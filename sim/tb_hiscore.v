@@ -217,6 +217,29 @@ module tb_hiscore;
         chk(12'h3ED,8'hBC,"mrtnt tiles FORCED in despite gate mismatch (the fix)");
         chk(12'h3F2,8'hC1,"mrtnt tiles last byte forced");
 
+        // ===== [10] Woodpecker (mod 8): tiles ARE the display; value + tiles both wiped by boot blank =====
+        // Generic protection (not value-redraw): the value (0x4e88) and the displayed digit
+        // tiles (0x43ed, a uniform blank-tile row) both get re-injected past the boot blank
+        // and are never snapshotted while at their default, so the .sav can't be erased.
+        $display("[10] Woodpecker value+tiles re-inject past the boot blank");
+        reset=1; loaded=0; mod_sel=5'd8;
+        for (i=0;i<4096;i=i+1) mem[i]=8'h00;            // value cold
+        for (i=12'h3ED;i<=12'h3F2;i=i+1) mem[i]=8'h40;  // tiles blank (cold)
+        mem[12'hDDA]=8'h03;                             // ready flag set
+        shwr(8'd0,8'h00); shwr(8'd1,8'h25); shwr(8'd2,8'h00);                                  // value
+        shwr(8'd3,8'h35); shwr(8'd4,8'h32); shwr(8'd5,8'h33); shwr(8'd6,8'h30); shwr(8'd7,8'h40); shwr(8'd8,8'h40);  // tiles
+        shwr(8'd9,8'h03); shwr(8'd255,MAGIC);
+        reset=0; loaded=1; run_frames(10);
+        chk(12'hE89,8'h25,"woodp value injected");
+        chk(12'h3ED,8'h35,"woodp display tiles injected");
+        for (i=12'hE88;i<=12'hE8A;i=i+1) mem[i]=8'h00;          // boot blank runs after restore: clear value
+        for (i=12'h3ED;i<=12'h3F2;i=i+1) mem[i]=8'h40;          // ... and blank the tiles
+        run_frames(8);
+        chk(12'hE89,8'h25,"woodp value RE-injected past the blank (the fix)");
+        chk(12'h3ED,8'h35,"woodp tiles RE-injected past the blank (the fix)");
+        chk_sh(8'd1,8'h25,"woodp saved value preserved (not zeroed)");
+        chk_sh(8'd3,8'h35,"woodp saved tiles preserved (not blanked)");
+
         if (pause_stuck) begin $display("  FAIL: pause wedged (CPU frozen / ri wrap)"); fails=fails+1; end
         if (fails==0) $display("==== ALL PASS ===="); else $display("==== %0d FAILS ====", fails);
         $finish;
