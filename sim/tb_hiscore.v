@@ -304,6 +304,34 @@ module tb_hiscore;
         chk_sh(8'd4,8'h30,"pacman valid row saved (tile 0)");
         chk_sh(8'd6,8'h35,"pacman valid row saved (tile 2)");
 
+        // ===== [15] Pac-Man stale-RAM guard: reload work RAM holds garbage -> don't snapshot it over the save =====
+        // On a warm core reload the work RAM retains stale bytes (a glitched session left 90c0f020 in
+        // the score cell). The engine must NOT capture that garbage into the .sav before the game has
+        // cleared the cell to its default at least once (the `seen` gate) -- else it corrupts the saved
+        // score and the game's beat-compare reads an invalid BCD forever (score never updates again).
+        $display("[15] Pac-Man stale-RAM guard (seen-cold gate)");
+        reset=1; loaded=0; mod_sel=5'd0;
+        for (i=0;i<4096;i=i+1) mem[i]=8'h00;
+        for (i=12'h3ED;i<=12'h3F2;i=i+1) mem[i]=8'h40;   // display row blank (cold) -> re-injects fine
+        mem[12'h3D1]=8'h48;
+        // a valid save is present: score 1500, digit row "  1500", label
+        shwr(8'd0,8'h00); shwr(8'd1,8'h15); shwr(8'd2,8'h00); shwr(8'd3,8'h00);
+        shwr(8'd4,8'h30); shwr(8'd5,8'h30); shwr(8'd6,8'h35); shwr(8'd7,8'h31); shwr(8'd8,8'h40); shwr(8'd9,8'h40);
+        shwr(8'd10,8'h48); shwr(8'd255,MAGIC);
+        // reload: the score cell holds STALE GARBAGE (not the default) before the game inits it
+        mem[12'hE88]=8'h90; mem[12'hE89]=8'hC0; mem[12'hE8A]=8'hF0; mem[12'hE8B]=8'h20;
+        reset=0; loaded=1; run_frames(8);
+        chk_sh(8'd1,8'h15,"stale garbage NOT snapshotted over the saved score");
+        chk_sh(8'd0,8'h00,"saved score low byte intact");
+        // the game now clears the cell to its default -> region seen cold -> re-inject the save
+        mem[12'hE88]=8'h00; mem[12'hE89]=8'h00; mem[12'hE8A]=8'h00; mem[12'hE8B]=8'h00;
+        run_frames(10);
+        chk(12'hE89,8'h15,"saved score re-injected once region seen cold");
+        // player beats it to 9900 -> snapshots are trusted now, capture it
+        mem[12'hE88]=8'h00; mem[12'hE89]=8'h99; mem[12'hE8A]=8'h00; mem[12'hE8B]=8'h00;
+        run_frames(8);
+        chk_sh(8'd1,8'h99,"beaten score snapshotted after region seen cold");
+
         if (pause_stuck) begin $display("  FAIL: pause wedged (CPU frozen / ri wrap)"); fails=fails+1; end
         if (fails==0) $display("==== ALL PASS ===="); else $display("==== %0d FAILS ====", fails);
         $finish;

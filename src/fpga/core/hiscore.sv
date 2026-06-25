@@ -120,6 +120,7 @@ module hiscore #(
     reg [3:0]  injected; // per-region one-shot: bit set once region ri has been restored
     reg        r0_now;   // value region (re)injected this walk -> force the display tiles
     reg [3:0]  cold;     // per-region: scanned fully-cold this poll -> re-inject + skip snapshot (preserve saved)
+    reg [3:0]  seen;     // per-region: the game has cleared it to its default at least once since reset (so we only snapshot AFTER the game initialises it, never the stale boot/reload RAM)
     reg        disp_ok;  // guarded display region scanned as all-valid digit/blank tiles this poll
 
     // current region (combinational unpack of cfg(mod_sel, ri))
@@ -186,7 +187,7 @@ module hiscore #(
             state <= S_IDLE; pause <= 1'b0;
             hs_access_read <= 1'b0; hs_access_write <= 1'b0; hs_write_enable <= 1'b0;
             ri <= 3'd0; bi <= 8'd0; sp <= 8'd0; timer <= 16'd0; halt <= 1'b0; injected <= 4'd0;
-            r0_now <= 1'b0; cold <= 4'd0; disp_ok <= 1'b1;
+            r0_now <= 1'b0; cold <= 4'd0; disp_ok <= 1'b1; seen <= 4'd0;
         end else if (ce) begin
             hs_access_read  <= 1'b0;
             hs_access_write <= 1'b0;
@@ -256,6 +257,7 @@ module hiscore #(
                 if (hs_data_out != rsv) gate_ok <= 1'b0;
                 if (guard_disp && !byte_digit) disp_ok <= 1'b0;   // any non-digit/blank byte -> this row is garbage, don't save it
                 if (bi + 8'd1 == rlen) begin
+                    if (gate_ok && hs_data_out == rsv) seen[ri[1:0]] <= 1'b1;   // game has cleared this region to its default -> from now on its snapshots are real, not stale boot RAM
                     if (!fresh && gate_ok && hs_data_out == rsv) begin cold[ri[1:0]] <= 1'b1; bi <= 8'd0; state <= S_RINJ; end
                     else begin cold[ri[1:0]] <= 1'b0; sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; halt <= 1'b1; state <= S_WALK; end
                 end else begin
@@ -281,6 +283,7 @@ module hiscore #(
                 pause <= 1'b1;
                 if (!rv) begin shadow[8'd255] <= MAGIC; timer <= POLL_INTERVAL; state <= S_HOLD; end
                 else if (scan_uni && !fresh && cold[ri[1:0]]) begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; end  // region sits at its cold default -> preserve the saved score, do not snapshot the blank/zeros over it
+                else if (scan_uni && !guard_disp && !seen[ri[1:0]]) begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; end  // work-RAM value region not yet cleared this session -> still holds stale boot/reload RAM, don't capture it (display rows are handled by guard_disp)
                 else if (guard_disp && !fresh && !disp_ok) begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; end  // display row holds non-digit garbage (boot/mid-paint) -> keep the last valid saved row
                 else if (!fresh && !injected[ri[1:0]] && !scan_uni) begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; end  // saved-but-not-yet-restored -> keep its loaded save; a fresh card snapshots all (nothing to preserve)
                 else begin hs_address <= roff + {4'd0, bi}; hs_access_read <= 1'b1; state <= S_SN_L; end
