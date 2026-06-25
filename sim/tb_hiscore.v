@@ -134,14 +134,20 @@ module tb_hiscore;
         // region0 c40/3 <- sh0..2 ; verify first+last region injected (proves all 4 walked)
         chk(12'hC40,8'h30,"ponp r0 first"); chk(12'hC53,8'h30+8'd28,"ponp r3 (last region) injected");
 
-        // ===== [5] Woodpecker (mod 8) value-only restore (0x43ed is value-redraw, not saved) =====
-        $display("[5] Woodpecker value-only restore");
+        // ===== [5] Woodpecker (mod 8) restore: value + the drawn digit row =====
+        $display("[5] Woodpecker restore (value + digit row)");
         reset=1; loaded=0; mod_sel=5'd8;
         for (i=0;i<4096;i=i+1) mem[i]=8'h00;
-        repeat(8)@(posedge clk); loadshadow(3, 8'h20, 1'b1); repeat(8)@(posedge clk);
+        for (i=12'h3ED;i<=12'h3F2;i=i+1) mem[i]=8'h40;   // game blanked the row -> tile gate matches
+        mem[12'hDDA]=8'h03;
+        // saved: value 960, digit row "  960", flag 03
+        shwr(8'd0,8'h60); shwr(8'd1,8'h09); shwr(8'd2,8'h00);
+        shwr(8'd3,8'h30); shwr(8'd4,8'h36); shwr(8'd5,8'h39); shwr(8'd6,8'h40); shwr(8'd7,8'h40); shwr(8'd8,8'h40);
+        shwr(8'd9,8'h03); shwr(8'd255,MAGIC);
         reset=0; loaded=1; run_frames(14);
-        chk(12'hE88,8'h20,"wp value e88"); chk(12'hE8A,8'h22,"wp value e8a");
-        chk(12'hE8B,8'h00,"wp e8b untouched (len 3)");
+        chk(12'hE89,8'h09,"wp value restored");
+        chk(12'h3ED,8'h30,"wp digit row restored (tile 0)");
+        chk(12'h3EF,8'h39,"wp digit row restored (tile 2)");
 
         // ===== [6] savestate interlock: ss_busy stalls snapshot (no tap collision) =====
         $display("[6] savestate interlock");
@@ -231,6 +237,29 @@ module tb_hiscore;
         mem[12'hE88]=8'h00; mem[12'hE89]=8'h99; mem[12'hE8A]=8'h00;  // player beats it
         run_frames(8);
         chk_sh(8'd1,8'h99,"woodp beaten score snapshotted");
+
+        // ===== [11] Woodpecker save guard: skip the garbage digit row, capture a valid one =====
+        // The row is only valid when it holds digits; at boot it is graphic tiles. The snapshot
+        // must NOT save a row with any non-digit/blank byte (else it captures + restores garbage).
+        $display("[11] Woodpecker digit-row save guard");
+        reset=1; loaded=0; mod_sel=5'd8;
+        for (i=0;i<4096;i=i+1) mem[i]=8'h00;
+        // a valid save already present: value 960, digit row "  960", flag 03
+        shwr(8'd0,8'h60); shwr(8'd1,8'h09); shwr(8'd2,8'h00);
+        shwr(8'd3,8'h30); shwr(8'd4,8'h36); shwr(8'd5,8'h39); shwr(8'd6,8'h40); shwr(8'd7,8'h40); shwr(8'd8,8'h40);
+        shwr(8'd9,8'h03); shwr(8'd255,MAGIC);
+        // game running: value holds the score, but the row currently shows GARBAGE graphic tiles
+        mem[12'hE88]=8'h60; mem[12'hE89]=8'h09; mem[12'hE8A]=8'h00; mem[12'hDDA]=8'h03;
+        mem[12'h3ED]=8'h3f; mem[12'h3EE]=8'h3d; mem[12'h3EF]=8'h3f; mem[12'h3F0]=8'h3d; mem[12'h3F1]=8'h3f; mem[12'h3F2]=8'h3d;
+        reset=0; loaded=1; run_frames(10);
+        chk_sh(8'd3,8'h30,"garbage row NOT saved (tile 0 preserved)");
+        chk_sh(8'd5,8'h39,"garbage row NOT saved (tile 2 preserved)");
+        // game now paints valid digits into the row -> snapshot should capture them
+        mem[12'h3ED]=8'h30; mem[12'h3EE]=8'h32; mem[12'h3EF]=8'h35; mem[12'h3F0]=8'h40; mem[12'h3F1]=8'h40; mem[12'h3F2]=8'h40;
+        run_frames(8);
+        chk_sh(8'd3,8'h30,"valid row saved (tile 0)");
+        chk_sh(8'd4,8'h32,"valid row saved (tile 1)");
+        chk_sh(8'd5,8'h35,"valid row saved (tile 2)");
 
         if (pause_stuck) begin $display("  FAIL: pause wedged (CPU frozen / ri wrap)"); fails=fails+1; end
         if (fails==0) $display("==== ALL PASS ===="); else $display("==== %0d FAILS ====", fails);

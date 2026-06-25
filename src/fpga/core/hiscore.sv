@@ -79,8 +79,10 @@ module hiscore #(
                 2'd0: cfg = R(12'hcb3, 8'h3c, 8'h4c, 8'h01);
                 2'd1: cfg = R(12'h3ed, 8'd6,  8'h00, 8'h40);
                 default: cfg = {CW{1'b0}}; endcase
-            5'd8: case (i)                                   // Woodpecker -- value-redraw: 0x43ed is drawn from 0x4e88 ONLY when the score is beaten (routine 0x0a1c), never at boot/attract; restoring the stale tile row paints garbage. Save the value alone; the score persists for the in-game compare.
+            5'd8: case (i)                                   // Woodpecker -- like MAME: save value + the drawn digit row. The row (0x43ed) is only valid when it holds digits; at boot it is uninitialised graphic tiles, so the snapshot is digit-guarded (guard_disp) to capture it ONLY when it is real digits, never the garbage.
                 2'd0: cfg = R(12'he88, 8'd3,  8'h00, 8'h00);
+                2'd1: cfg = R(12'h3ed, 8'd6,  8'h40, 8'h40);
+                2'd2: cfg = R(12'hdda, 8'd1,  8'h03, 8'h03);
                 default: cfg = {CW{1'b0}}; endcase
             5'd10: case (i)                                  // Ali Baba
                 2'd0: cfg = R(12'he88, 8'd4,  8'h00, 8'h00);
@@ -118,6 +120,7 @@ module hiscore #(
     reg [3:0]  injected; // per-region one-shot: bit set once region ri has been restored
     reg        r0_now;   // value region (re)injected this walk -> force the display tiles
     reg [3:0]  cold;     // per-region: scanned fully-cold this poll -> re-inject + skip snapshot (preserve saved)
+    reg        disp_ok;  // guarded display region scanned as all-valid digit/blank tiles this poll
 
     // current region (combinational unpack of cfg(mod_sel, ri))
     wire [CW-1:0] cw   = cfg(mod_sel, ri);
@@ -150,6 +153,14 @@ module hiscore #(
     // tables and 1-byte flag/label cells keep the cheap first/last gate; value-redraw display
     // tiles (region 1 of Ali Baba / Mr. TNT) use force_disp instead.
     wire          scan_uni   = (rsv == rev) && (rlen >= 8'd2) && (rlen <= 8'd16) && !(vredraw && ri == 3'd1);
+    // Woodpecker's digit row (region 1) is only painted by the ROM when the score is
+    // beaten; at boot it holds uninitialised graphic tiles. The plain scan_uni snapshot
+    // would capture that garbage (it isn't blank, so it isn't "cold"). So when snapshotting
+    // THIS region, also require every byte to be a real digit tile (0x30-0x39) or blank
+    // (0x40) -- otherwise skip and keep the last valid saved row. This is how MAME's clean
+    // (at-exit) capture is matched without painting anything ourselves.
+    wire          guard_disp = (mod_sel == 5'd8) && (ri == 3'd1);
+    wire          byte_digit = ((hs_data_out >= 8'h30) && (hs_data_out <= 8'h39)) || (hs_data_out == 8'h40);
     // ---- shadow (the .sav image), 256 bytes ----
     reg [7:0] shadow [0:255];
     assign sv_rd_data = shadow[sv_rd_addr];
@@ -169,7 +180,7 @@ module hiscore #(
             state <= S_IDLE; pause <= 1'b0;
             hs_access_read <= 1'b0; hs_access_write <= 1'b0; hs_write_enable <= 1'b0;
             ri <= 3'd0; bi <= 8'd0; sp <= 8'd0; timer <= 16'd0; halt <= 1'b0; injected <= 4'd0;
-            r0_now <= 1'b0; cold <= 4'd0;
+            r0_now <= 1'b0; cold <= 4'd0; disp_ok <= 1'b1;
         end else if (ce) begin
             hs_access_read  <= 1'b0;
             hs_access_write <= 1'b0;
@@ -213,7 +224,7 @@ module hiscore #(
                 else if (!rv) begin                                  // walked all regions -> snapshot
                     halt <= 1'b0; ri <= 3'd0; sp <= 8'd0; bi <= 8'd0; state <= S_SN;
                 end else if (scan_uni) begin                         // uniform data region: full-cold scan (re-inject past the boot wipe)
-                    gate_ok <= 1'b1; bi <= 8'd0; hs_address <= roff; hs_access_read <= 1'b1; state <= S_ZS;
+                    gate_ok <= 1'b1; disp_ok <= 1'b1; bi <= 8'd0; hs_address <= roff; hs_access_read <= 1'b1; state <= S_ZS;
                 end else if (injected[ri[1:0]] && !(vr_ab && ri == 3'd1)) begin
                     sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1;         // already restored -> skip (Ali Baba tiles stay re-forceable)
                 end else begin
@@ -237,6 +248,7 @@ module hiscore #(
             S_ZS: begin
                 pause <= 1'b1;
                 if (hs_data_out != rsv) gate_ok <= 1'b0;
+                if (guard_disp && !byte_digit) disp_ok <= 1'b0;   // any non-digit/blank byte -> this row is garbage, don't save it
                 if (bi + 8'd1 == rlen) begin
                     if (!fresh && gate_ok && hs_data_out == rsv) begin cold[ri[1:0]] <= 1'b1; bi <= 8'd0; state <= S_RINJ; end
                     else begin cold[ri[1:0]] <= 1'b0; sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; halt <= 1'b1; state <= S_WALK; end
@@ -263,6 +275,7 @@ module hiscore #(
                 pause <= 1'b1;
                 if (!rv) begin shadow[8'd255] <= MAGIC; timer <= POLL_INTERVAL; state <= S_HOLD; end
                 else if (scan_uni && !fresh && cold[ri[1:0]]) begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; end  // region sits at its cold default -> preserve the saved score, do not snapshot the blank/zeros over it
+                else if (guard_disp && !fresh && !disp_ok) begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; end  // display row holds non-digit garbage (boot/mid-paint) -> keep the last valid saved row
                 else if (!fresh && !injected[ri[1:0]] && !scan_uni) begin sp <= sp + {1'b0, rlen}; ri <= ri + 3'd1; end  // saved-but-not-yet-restored -> keep its loaded save; a fresh card snapshots all (nothing to preserve)
                 else begin hs_address <= roff + {4'd0, bi}; hs_access_read <= 1'b1; state <= S_SN_L; end
             end
