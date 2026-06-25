@@ -199,6 +199,33 @@ self-protect. **Value-redraw display tiles** (Ali Baba/Mr. TNT region 1) keep
    saves the blank. Fix: general `scan_uni`/`S_ZS` full-scan re-inject + preserve
    (see the section above). Don't reintroduce a first/last-only gate for value cells.
 
+## Methodology — the fast path (audit ALL variants at once)
+
+The slow way (what cost a day of rebuilds): device-test one variant, find it broken,
+RE it, fix, deploy, repeat. The fast way: there are only a handful of FAILURE MODES,
+each maps to a mechanism that already exists, so RE **every** variant against the
+catalog in ONE parallel pass, map each hit to its fix, prove the logic in sim, deploy
+once. The `variant-hiscore-failuremode-audit` workflow does exactly this.
+
+**The failure-mode catalog** — for each variant, check all of these from the ROM:
+
+| # | Failure mode | How it shows | Fix |
+|---|--------------|--------------|-----|
+| 1 | Boot-clear wipe | the game's boot clear zeros the value/table **after** our restore; the snapshot saves the zeros → save erased | `scan_uni`: uniform region full-cold re-inject + skip-cold snapshot. Large tables → lift the `rlen` cap (it's currently 240). |
+| 2 | Garbage-at-boot row | the display row holds graphic tiles (`0x3a-0x3f`) before the game paints digits; the continuous snapshot saves the garbage → restores `?=?=?=` | `guard_disp`: snapshot the row only when every byte is a digit (`0x30-0x39`) or blank (`0x40`). |
+| 3 | Value-redraw | the digit row is recomputed from a value cell each frame/maze-build, so restoring the tile row alone is overwritten | `force_disp`: force the tile row in when the value restores → add the mod to `vredraw`. |
+| 4 | Beat-only draw | the row is painted ONLY when a score is beaten, never for a saved score (Woodpecker) | restore the row + `guard_disp` so the row captured *while digits were on screen* persists. **NEVER a painter** (it overwrites the row and breaks the in-game score; HISCORE.md §trap). |
+| 5 | Non-uniform display gate | the display region has `sval != eval` → only the cheap first/last gate, NO wipe protection | confirm it can't be wiped; if it can, route it to a protected path. |
+
+**The process:** (1) RE every variant against the catalog in one parallel pass (two
+traces + reconcile each, against the FULL 64KB Z80 map — verify the ROM load order
+from MAME `ROM_START`; file offset is often NOT the Z80 address). (2) Map each hit to
+the mechanism above — most fixes are one line (a mod added to a set, or a cap). (3)
+Prove it in `sim/tb_hiscore.v`: the capture/restore **logic** is fully testable there
+(restore → wipe → re-inject → preserve → guard). The only thing sim can't show is the
+on-screen position — trust that MAME's `hiscore.dat` regions are right and the
+persist/redraw analysis from the trace. (4) Build once, deploy once.
+
 ## Workflow: diagnosing & fixing a variant's high score
 
 The flow is the same every time — follow it in order, don't skip to a fix.
