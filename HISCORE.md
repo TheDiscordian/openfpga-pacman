@@ -120,6 +120,14 @@ Which game is which (verified by ROM trace, two independent traces + reconcile):
   handling — but their uniform value/tile regions still need the boot-clear-wipe
   protection below (Woodpecker proved it: it draws tiles directly yet its save was
   being erased by the wipe).
+  - **Woodpecker save guard (`guard_disp`):** its digit row (`0x43ed`) is only
+    painted when a score is beaten and the row holds uninitialised graphic tiles
+    (`0x3a-0x3f`) at boot — not blank, so `scan_uni` did not treat it as cold and
+    the continuous snapshot saved the garbage, then restored `?=?=?=`. The fix is
+    NOT a painter (that overwrote the row and broke the in-game score): only
+    *snapshot* the row when every byte is a digit (`0x30-0x39`) or blank (`0x40`),
+    else keep the last valid saved row. Capture timing, not painting. (MAME avoids
+    this by only saving at exit, when the digits are on screen.)
 - **Value-redraw (needs `force_disp`):** **Ali Baba** and **Mr. TNT**.
   - Ali Baba: `sub_0a30 → sub_2aa7` rebuilds the `0x43ed` digit row from the BCD
     value `0x4e88-0x4e8a` on every maze build (flag `0x4dee`), which runs in attract
