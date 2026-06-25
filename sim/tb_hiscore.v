@@ -111,17 +111,17 @@ module tb_hiscore;
         reset=1; loaded=0; mod_sel=5'd0; pacman_default;
         repeat(8)@(posedge clk); loadshadow(11, 8'h00, 1'b0); repeat(8)@(posedge clk);  // truly fresh
         reset=0; loaded=1; run_frames(10);   // gate passes on the default table during "attract"
-        // game beats it: writes score 1500 (BCD 00 15 00 00) + draws its own tiles + label stays
+        // game beats it: writes score 1500 (BCD 00 15 00 00) + draws its DIGIT tiles + label stays
         mem[12'hE88]=8'h00; mem[12'hE89]=8'h15; mem[12'hE8A]=8'h00; mem[12'hE8B]=8'h00;
-        mem[12'h3ED]=8'h00; mem[12'h3EE]=8'h00; mem[12'h3EF]=8'h05; mem[12'h3F0]=8'h01;
-        mem[12'h3F1]=8'h40; mem[12'h3F2]=8'h40;
+        mem[12'h3ED]=8'h30; mem[12'h3EE]=8'h30; mem[12'h3EF]=8'h35; mem[12'h3F0]=8'h31;
+        mem[12'h3F1]=8'h40; mem[12'h3F2]=8'h40;   // real digit tiles 0x30-0x39 / pad 0x40 (guard requires this)
         run_frames(6);
         chk_sh(8'd1,8'h15,"snapshot captured score"); chk_sh(8'd255,MAGIC,"marked valid");
         // reboot: shadow (.sav) persists in the DUT; RAM cleared to defaults; reload
         reset=1; loaded=0; pacman_default; repeat(8)@(posedge clk);
         reset=0; loaded=1; run_frames(14);
         chk(12'hE89,8'h15,"reboot restored score hi byte");
-        chk(12'h3EF,8'h05,"reboot restored tile"); chk(12'h3D1,8'h48,"reboot label intact");
+        chk(12'h3EF,8'h35,"reboot restored tile"); chk(12'h3D1,8'h48,"reboot label intact");
 
         // ===== [4] Ponpoko (mod 11, FOUR regions) -> no ri-wrap wedge =====
         $display("[4] Ponpoko 4-region (no wedge)");
@@ -284,6 +284,25 @@ module tb_hiscore;
         reset=0; loaded=1; run_frames(28);
         chk(12'h808,8'h50,"dshop row FORCED from value restore (sh240)");
         chk(12'h80D,8'h55,"dshop row last byte forced (sh245)");
+
+        // ===== [14] Pac-Man (mod 0): digit-row guard now covers it too (video-RAM display row) =====
+        $display("[14] Pac-Man digit-row save guard");
+        reset=1; loaded=0; mod_sel=5'd0; pacman_default;
+        // valid save present: value 1500, digit row "  1500", label 0x48
+        shwr(8'd0,8'h00); shwr(8'd1,8'h15); shwr(8'd2,8'h00); shwr(8'd3,8'h00);
+        shwr(8'd4,8'h30); shwr(8'd5,8'h30); shwr(8'd6,8'h35); shwr(8'd7,8'h31); shwr(8'd8,8'h40); shwr(8'd9,8'h40);
+        shwr(8'd10,8'h48); shwr(8'd255,MAGIC);
+        // game running: value real, but the row holds GARBAGE graphic tiles (boot / mid-paint)
+        mem[12'hE88]=8'h00; mem[12'hE89]=8'h15; mem[12'hE8A]=8'h00; mem[12'hE8B]=8'h00; mem[12'h3D1]=8'h48;
+        mem[12'h3ED]=8'h3f; mem[12'h3EE]=8'h3d; mem[12'h3EF]=8'h3f; mem[12'h3F0]=8'h3d; mem[12'h3F1]=8'h3f; mem[12'h3F2]=8'h3d;
+        reset=0; loaded=1; run_frames(10);
+        chk_sh(8'd4,8'h30,"pacman garbage row NOT saved (tile 0 preserved)");
+        chk_sh(8'd6,8'h35,"pacman garbage row NOT saved (tile 2 preserved)");
+        // game paints valid digits -> snapshot captures them
+        mem[12'h3ED]=8'h30; mem[12'h3EE]=8'h32; mem[12'h3EF]=8'h35; mem[12'h3F0]=8'h40; mem[12'h3F1]=8'h40; mem[12'h3F2]=8'h40;
+        run_frames(8);
+        chk_sh(8'd4,8'h30,"pacman valid row saved (tile 0)");
+        chk_sh(8'd6,8'h35,"pacman valid row saved (tile 2)");
 
         if (pause_stuck) begin $display("  FAIL: pause wedged (CPU frozen / ri wrap)"); fails=fails+1; end
         if (fails==0) $display("==== ALL PASS ===="); else $display("==== %0d FAILS ====", fails);

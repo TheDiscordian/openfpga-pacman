@@ -159,8 +159,14 @@ module hiscore #(
     // THIS region, also require every byte to be a real digit tile (0x30-0x39) or blank
     // (0x40) -- otherwise skip and keep the last valid saved row. This is how MAME's clean
     // (at-exit) capture is matched without painting anything ourselves.
-    wire          guard_disp = (mod_sel == 5'd8) && (ri == 3'd1);
-    wire          byte_digit = ((hs_data_out >= 8'h30) && (hs_data_out <= 8'h39)) || (hs_data_out == 8'h40);
+    // Any uniform display-tile row in VIDEO RAM (offset < 0x400) -- the on-screen digit
+    // rows (0x43ed etc.) -- can hold uninitialised graphic tiles (0x3a-0x3f) at boot before
+    // the game paints digits; the continuous snapshot would capture that garbage and restore
+    // `?=?=?=`. So for any such region, only snapshot it when every byte is a digit
+    // (0x30-0x39) or the region's own pad/blank tile (its sval/eval). Value/table regions
+    // live in work RAM (offset >= 0x400) and are not affected.
+    wire          guard_disp = scan_uni && (roff < 12'h400);
+    wire          byte_digit = ((hs_data_out >= 8'h30) && (hs_data_out <= 8'h39)) || (hs_data_out == rsv) || (hs_data_out == rev);
     // ---- shadow (the .sav image), 256 bytes ----
     reg [7:0] shadow [0:255];
     assign sv_rd_data = shadow[sv_rd_addr];
