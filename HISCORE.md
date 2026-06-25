@@ -59,8 +59,8 @@ MRAs), resolved to the 0x4000 work-RAM window. This is the `cfg()` table in
 | 8 | Woodpecker | `e88/3(00)`, `3ed/6(40/40)`, `dda/1(03)` | `3ed` tiles |
 | 10 | Ali Baba | `e88/4(00)`, `3ed/6(40/40)`, `3d1/1(48)` | redrawn from `e88` value (forced) |
 | 11 | Ponpoko | `c40/3(00)`, `e5a/19(00)`, `06c/6(0f/00)`, `c53/1(02)` | `06c` tiles |
-| 12 | Van-Van Car | `809/6(00)`, `c60/240(00)` | redrawn from `c60` table |
-| 14 | Dream Shopper | `c00/240(00/01)`, `808/6(00)`, `809/1(03)` | redrawn from `c00` table |
+| 12 | Van-Van Car | `809/6(00)`, `c60/240(00)` | `4809` value + `c60` table (both `scan_uni`) |
+| 14 | Dream Shopper | `c00/240(00/01)`, `808/6(00)`, `809/1(03)` | redrawn from `808` value (forced) |
 
 `sval/eval` = the **gate**: a region's saved bytes are injected only once the live
 RAM shows `first byte == sval && last byte == eval` (the game's default/blank

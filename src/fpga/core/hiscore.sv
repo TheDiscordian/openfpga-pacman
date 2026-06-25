@@ -137,7 +137,7 @@ module hiscore #(
     // redraw; so the instant the value (region 0) is restored we ALSO force the display
     // tile region (region 1) in, bypassing its own gate, so the saved number shows now
     // and the restored value keeps later redraws correct. One-shot via injected[1].
-    wire          vredraw    = (mod_sel == 5'd7) || (mod_sel == 5'd10);
+    wire          vredraw    = (mod_sel == 5'd7) || (mod_sel == 5'd10) || (mod_sel == 5'd14);  // Dream Shopper redraws its row from the value every frame too
     // Ali Baba also WIPES the value cell with its boot clear and never repaints the score
     // in attract, so a one-shot restore loses the race; for it the value region re-injects
     // whenever it reads fully-cold (see S_ZS) and the tiles re-force each time (r0_now).
@@ -152,7 +152,7 @@ module hiscore #(
     // (surviving the wipe), and never snapshot that default over a real saved score. Large
     // tables and 1-byte flag/label cells keep the cheap first/last gate; value-redraw display
     // tiles (region 1 of Ali Baba / Mr. TNT) use force_disp instead.
-    wire          scan_uni   = (rsv == rev) && (rlen >= 8'd2) && (rlen <= 8'd16) && !(vredraw && ri == 3'd1);
+    wire          scan_uni   = (rsv == rev) && (rlen >= 8'd2) && (rlen <= 8'd240) && !(vredraw && ri == 3'd1);
     // Woodpecker's digit row (region 1) is only painted by the ROM when the score is
     // beaten; at boot it holds uninitialised graphic tiles. The plain scan_uni snapshot
     // would capture that garbage (it isn't blank, so it isn't "cold"). So when snapshotting

@@ -261,6 +261,30 @@ module tb_hiscore;
         chk_sh(8'd4,8'h32,"valid row saved (tile 1)");
         chk_sh(8'd5,8'h35,"valid row saved (tile 2)");
 
+        // ===== [12] Van-Van Car (mod 12): 240-byte score table wipe protection (scan cap lifted) =====
+        $display("[12] Van-Van Car 240B table re-inject past the boot clear");
+        reset=1; loaded=0; mod_sel=5'd12;
+        for (i=0;i<4096;i=i+1) mem[i]=8'h00;
+        repeat(8)@(posedge clk); loadshadow(246, 8'h20, 1'b1); repeat(8)@(posedge clk);  // 809/6 = sh0..5, c60/240 = sh6..245
+        reset=0; loaded=1; run_frames(24);
+        chk(12'h809,8'h20,"vanvan value 809 restored");
+        chk(12'hC60,8'h26,"vanvan 240B table restored (first byte)");
+        for (i=12'hC60;i<=12'hD4F;i=i+1) mem[i]=8'h00;     // boot clear sweeps the table AFTER restore
+        run_frames(20);
+        chk(12'hC60,8'h26,"vanvan table RE-injected past the clear (the fix)");
+        chk_sh(8'd6,8'h26,"vanvan saved table preserved (not zeroed)");
+
+        // ===== [13] Dream Shopper (mod 14): value-redraw -> force the display row =====
+        $display("[13] Dream Shopper force display row (mod 14 value-redraw)");
+        reset=1; loaded=0; mod_sel=5'd14;
+        for (i=0;i<4096;i=i+1) mem[i]=8'h00;
+        mem[12'hCEF]=8'h01;                                // region0 c00/240 gate: last byte == eval 0x01
+        for (i=12'h808;i<=12'h80D;i=i+1) mem[i]=8'h55;     // display row 0x808 non-default -> its OWN gate fails (must be FORCED)
+        repeat(8)@(posedge clk); loadshadow(247, 8'h60, 1'b1); repeat(8)@(posedge clk);  // 808/6 row = sh240..245
+        reset=0; loaded=1; run_frames(28);
+        chk(12'h808,8'h50,"dshop row FORCED from value restore (sh240)");
+        chk(12'h80D,8'h55,"dshop row last byte forced (sh245)");
+
         if (pause_stuck) begin $display("  FAIL: pause wedged (CPU frozen / ri wrap)"); fails=fails+1; end
         if (fails==0) $display("==== ALL PASS ===="); else $display("==== %0d FAILS ====", fails);
         $finish;
