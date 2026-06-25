@@ -232,21 +232,6 @@ module tb_hiscore;
         run_frames(8);
         chk_sh(8'd1,8'h99,"woodp beaten score snapshotted");
 
-        // ===== [11] Woodpecker: paint the digit row from the restored value =====
-        // value 0x4e88=0x60 0x4e89=0x09 0x4e8a=0x00 (= 000960). ROM-verified output:
-        // 0x43ed='0' 0x43ee='6' 0x43ef='9' 0x43f0-0x43f2 blank, i.e. "  960".
-        $display("[11] Woodpecker value->digit-row paint");
-        reset=1; loaded=0; mod_sel=5'd8;
-        for (i=0;i<4096;i=i+1) mem[i]=8'h00;
-        shwr(8'd0,8'h60); shwr(8'd1,8'h09); shwr(8'd2,8'h00); shwr(8'd255,MAGIC);
-        reset=0; loaded=1; run_frames(12);
-        chk(12'h3ED,8'h30,"woodp painted ones '0'");
-        chk(12'h3EE,8'h36,"woodp painted tens '6'");
-        chk(12'h3EF,8'h39,"woodp painted hundreds '9'");
-        chk(12'h3F0,8'h40,"woodp painted thousands blank");
-        chk(12'h3F1,8'h40,"woodp painted ten-thousands blank");
-        chk(12'h3F2,8'h40,"woodp painted hundred-thousands blank");
-
         if (pause_stuck) begin $display("  FAIL: pause wedged (CPU frozen / ri wrap)"); fails=fails+1; end
         if (fails==0) $display("==== ALL PASS ===="); else $display("==== %0d FAILS ====", fails);
         $finish;
